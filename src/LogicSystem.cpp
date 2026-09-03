@@ -23,6 +23,14 @@ LogicSystem::LogicSystem()
 {
     regGet("/get_test", [](const std::shared_ptr<HttpConnection> &connection)
     {
-       beast::ostream(connection->m_response.body()) << "receive get_test req";
+        beast::ostream(connection->m_response.body()) << "receive get_test req";
+        int i = 0;
+        for (auto &element: connection->m_getParams)
+        {
+            ++i;
+            beast::ostream(connection->m_response.body())
+                    << "param " << i << " key is " << element.first
+                    << " value is " << element.second << "\n";
+        }
     });
 }
