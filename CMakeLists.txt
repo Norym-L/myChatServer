@@ -3,6 +3,10 @@ project(GateServer)
 
 set(CMAKE_CXX_STANDARD 20)
 
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 # Map Debug/MinSizeRel/RelWithDebInfo to Release for Conan packages
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
 set(CMAKE_MAP_IMPORTED_CONFIG_MINSIZEREL Release)

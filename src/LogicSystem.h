@@ -19,7 +19,9 @@ class LogicSystem : public TSingLeton<LogicSystem>
 public:
     ~LogicSystem();
     bool handleGet(std::string path, std::shared_ptr<HttpConnection> connection);
+    bool handlePost(std::string path, std::shared_ptr<HttpConnection> connection);
     void regGet(std::string url, HttpHandler handler);
+    void regPost(std::string url, HttpHandler handler);
 
 private:
     LogicSystem();
