@@ -13,7 +13,7 @@ unsigned char ToHex(const unsigned char x)
 // 16 -> 10
 unsigned char FormHex(const unsigned char x)
 {
-    unsigned char y;
+    unsigned char y = '0';
     if (x >= 'A' && x <= 'Z') y = x - 'A' + 10;
     else if (x >= 'a' && x <= 'z') y = x - 'a' + 10;
     else if (x >= '0' && x <= '9') y = x - '0';

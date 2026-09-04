@@ -19,6 +19,9 @@
 #include <json/json.h>
 #include <json/value.h>
 #include <json/reader.h>
+#include <boost/filesystem.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ini_parser.hpp>
 
 #include "Singleton.h"
 
@@ -27,12 +30,15 @@ namespace http = beast::http;           // from <boost/beast/http.hpp>
 namespace net = boost::asio;            // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 
-enum ErrorCode
+enum class ErrorCode
 {
     SUCCESS = 0,
     ERROR_JSON = 1001,
     RPC_FAILED = 1002,
 };
+
+class ConfigManager;
+extern ConfigManager g_CONFIG;
 
 
 #endif //GATESERVER_CONST_H

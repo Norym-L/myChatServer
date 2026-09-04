@@ -1,9 +1,16 @@
 #include <iostream>
 
+#include "src/ConfigManager.h"
 #include "src/CServer.h"
+#include "src/const.h"
+
+ConfigManager g_CONFIG;
 
 int main()
 {
+    const std::string gate_post_str = g_CONFIG["GateServer"]["Port"];
+    unsigned short gate_port = std::stoi(gate_post_str);
+
     try
     {
         auto port = static_cast<unsigned short>(8080);

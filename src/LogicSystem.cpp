@@ -1,7 +1,8 @@
 #include "LogicSystem.h"
 #include "HttpConnection.h"
+#include "VerifyGrpcClient.h"
 
-LogicSystem::~LogicSystem() {}
+LogicSystem::~LogicSystem() = default;
 
 bool LogicSystem::handleGet(std::string path, std::shared_ptr<HttpConnection> connection)
 {
@@ -51,7 +52,7 @@ LogicSystem::LogicSystem()
                }
            });
 
-    regPost("/get_varifycode",
+    regPost("/get_Verifycode",
             [](std::shared_ptr<HttpConnection> connection)
             {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
@@ -66,15 +67,16 @@ LogicSystem::LogicSystem()
                     !src_root.isMember("email"))
                 {
                     std::cout << "Failed to parse Json data!" << std::endl;
-                    root["error"] = ErrorCode::ERROR_JSON;
+                    root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
                     return true; // 只是参数不对，不需要[断开连接]更严重false
                 }
 
                 auto email = src_root["email"].asString();
+                auto rsp = VerifyGrpcClient::GetInstance().getverifyCode(email);
                 std::cout << "email is: " << email << std::endl;
-                root["error"] = 0;
+                root["error"] = rsp.error();
                 root["email"] = src_root["email"];
                 std::string json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
