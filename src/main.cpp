@@ -1,14 +1,12 @@
 #include <iostream>
 
-#include "src/ConfigManager.h"
-#include "src/CServer.h"
-#include "src/const.h"
-
-ConfigManager g_CONFIG;
+#include "ConfigManager.h"
+#include "httpServer/CServer.h"
+#include "const.h"
 
 int main()
 {
-    const std::string gate_post_str = g_CONFIG["GateServer"]["port"];
+    const std::string gate_post_str = ConfigManager::GetInstance()["GateServer"]["port"];
     unsigned short gate_port = std::stoi(gate_post_str);
 
     try

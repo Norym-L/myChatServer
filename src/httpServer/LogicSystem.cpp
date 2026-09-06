@@ -1,6 +1,6 @@
 #include "LogicSystem.h"
 #include "HttpConnection.h"
-#include "VerifyGrpcClient.h"
+#include "../verifyClient/VerifyGrpcClient.h"
 
 LogicSystem::~LogicSystem() = default;
 

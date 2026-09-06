@@ -50,7 +50,7 @@ foreach(PROTO_FILE ${PROTO_FILES})
     list(APPEND GRPC_SRCS "${PROTO_OUT_DIR}/${PROTO_NAME}.grpc.pb.cc")
 endforeach()
 
-add_executable(GateServer main.cpp
+add_executable(GateServer
         ${SOURCES}
         ${PROTO_SRCS} ${GRPC_SRCS}
 )

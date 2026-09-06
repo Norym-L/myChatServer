@@ -4,8 +4,8 @@
 #include <grpcpp/grpcpp.h>
 #include <message.grpc.pb.h>
 
-#include "const.h"
-#include "Singleton.h"
+#include "../const.h"
+#include "../Singleton.h"
 
 using grpc::Channel;
 using grpc::Status;
