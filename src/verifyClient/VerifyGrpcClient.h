@@ -4,6 +4,7 @@
 #include <grpcpp/grpcpp.h>
 #include <message.grpc.pb.h>
 
+#include "RPCConnectPool.h"
 #include "../const.h"
 #include "../Singleton.h"
 
@@ -23,15 +24,9 @@ public:
     [[nodiscard]] GetVerifyRsp getverifyCode(const std::string& email) const;
 
 private:
-    VerifyGrpcClient()
-    {
-        const std::shared_ptr<Channel> channel = grpc::CreateChannel(
-        "127.0.0.1:50051",
-        grpc::InsecureChannelCredentials());
-        m_stub = VerifyServer::NewStub(channel);
-    }
+    VerifyGrpcClient();
 
-    std::unique_ptr<VerifyServer::Stub> m_stub;
+    std::unique_ptr<RPCConnectPool> m_pool;
 };
 
 
