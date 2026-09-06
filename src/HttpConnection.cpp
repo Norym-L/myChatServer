@@ -77,8 +77,8 @@ std::string UrlDecode(const std::string &str)
 }
 }
 
-HttpConnection::HttpConnection(tcp::socket socket)
-    : m_socket(std::move(socket))
+HttpConnection::HttpConnection(boost::asio::io_context& ioc)
+    : m_socket(ioc)
 {}
 
 void HttpConnection::start()
@@ -102,6 +102,11 @@ void HttpConnection::start()
             std::cout << exp.what() << std::endl;
         }
     });
+}
+
+tcp::socket & HttpConnection::getSocket()
+{
+    return m_socket;
 }
 
 void HttpConnection::checkDeadLine()

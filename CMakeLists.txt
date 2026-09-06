@@ -65,3 +65,11 @@ target_link_libraries(GateServer PRIVATE
         ws2_32
         mswsock
 )
+
+# 构建后自动复制 config.ini 到输出目录
+add_custom_command(TARGET GateServer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/config.ini"
+        "$<TARGET_FILE_DIR:GateServer>/config.ini"
+        COMMENT "Copying config.ini to output directory"
+)
