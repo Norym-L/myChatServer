@@ -7,17 +7,18 @@
 struct SectionInfo
 {
     SectionInfo() = default;
+
     ~SectionInfo()
     {
         m_sectionDatas.clear();
     }
 
-    SectionInfo(const SectionInfo& other)
+    SectionInfo(const SectionInfo &other)
     {
         m_sectionDatas = other.m_sectionDatas;
     }
 
-    SectionInfo& operator=(const SectionInfo& other)
+    SectionInfo &operator=(const SectionInfo &other)
     {
         if (&other == this) // 自己拷贝自己
         {
@@ -30,7 +31,7 @@ struct SectionInfo
 
     std::map<std::string, std::string> m_sectionDatas;
 
-    std::string operator[](const std::string& key)
+    std::string operator[](const std::string &key)
     {
         if (!m_sectionDatas.contains(key))
         {
@@ -41,43 +42,19 @@ struct SectionInfo
     }
 };
 
-class ConfigManager
+class ConfigManager : public TSingLeton<ConfigManager>
 {
+    friend class TSingLeton;
+
 public:
-    ConfigManager();
-
-    ~ConfigManager()
-    {
-        m_configMap.clear();
-    }
-
-    ConfigManager(const ConfigManager& other)
-    {
-        m_configMap = other.m_configMap;
-    }
-
-    ConfigManager& operator=(const ConfigManager& other)
-    {
-        if (&other == this)
-        {
-            return *this;
-        }
-
-        m_configMap = other.m_configMap;
-        return *this;
-    }
-
-    SectionInfo operator[](const std::string& section)
-    {
-        if (!m_configMap.contains(section))
-        {
-            return SectionInfo();
-        }
-
-        return m_configMap[section];
-    }
+    ~ConfigManager();
+    ConfigManager(const ConfigManager &other);
+    ConfigManager &operator=(const ConfigManager &other);
+    SectionInfo operator[](const std::string &section);
 
 private:
+    ConfigManager();
+
     std::map<std::string, SectionInfo> m_configMap;
 };
 

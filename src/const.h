@@ -37,8 +37,4 @@ enum class ErrorCode
     RPC_FAILED = 1002,
 };
 
-class ConfigManager;
-extern ConfigManager g_CONFIG;
-
-
 #endif //GATESERVER_CONST_H
