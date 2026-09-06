@@ -8,7 +8,7 @@ ConfigManager g_CONFIG;
 
 int main()
 {
-    const std::string gate_post_str = g_CONFIG["GateServer"]["Port"];
+    const std::string gate_post_str = g_CONFIG["GateServer"]["port"];
     unsigned short gate_port = std::stoi(gate_post_str);
 
     try

@@ -26,7 +26,7 @@ private:
     VerifyGrpcClient()
     {
         const std::shared_ptr<Channel> channel = grpc::CreateChannel(
-        "0.0.0.0:50051",
+        "127.0.0.1:50051",
         grpc::InsecureChannelCredentials());
         m_stub = VerifyServer::NewStub(channel);
     }
