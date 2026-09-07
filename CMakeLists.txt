@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(Boost REQUIRED COMPONENTS filesystem)
 find_package(jsoncpp REQUIRED)
 find_package(gRPC REQUIRED)
+find_package(redis++ REQUIRED)
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
         "src/*.cpp"
@@ -62,6 +63,7 @@ target_link_libraries(GateServer PRIVATE
         Boost::filesystem
         JsonCpp::JsonCpp
         gRPC::grpc++
+        redis++::redis++_static
         ws2_32
         mswsock
 )
