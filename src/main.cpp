@@ -9,14 +9,12 @@
 #include "httpServer/RedisManager.h"
 
 void TestRedisMgr() {
-    assert(RedisManager::GetInstance().connect("127.0.0.1", 6380));
-    assert(RedisManager::GetInstance().auth("123456"));
     assert(RedisManager::GetInstance().set("blogwebsite","llfc.club"));
     std::string value;
     assert(RedisManager::GetInstance().get("blogwebsite", value) );
     assert(RedisManager::GetInstance().get("nonekey", value) == false);
     assert(RedisManager::GetInstance().hSet("bloginfo","blogwebsite", "llfc.club"));
-    assert(RedisManager::GetInstance().hGet("bloginfo","blogwebsite") != "");
+    assert(!RedisManager::GetInstance().hGet("bloginfo","blogwebsite").empty());
     assert(RedisManager::GetInstance().existsKey("bloginfo"));
     assert(RedisManager::GetInstance().del("bloginfo"));
     assert(RedisManager::GetInstance().del("bloginfo"));
@@ -28,7 +26,6 @@ void TestRedisMgr() {
     assert(RedisManager::GetInstance().rPop("lpushkey1", value));
     assert(RedisManager::GetInstance().lPop("lpushkey1", value));
     assert(RedisManager::GetInstance().lPop("lpushkey2", value)==false);
-    RedisManager::GetInstance().close();
 }
 
 int main()
