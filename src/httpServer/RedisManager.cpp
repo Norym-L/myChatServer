@@ -330,7 +330,7 @@ std::string RedisManager::hGet(const std::string &key, const std::string &h_key)
 
     const char *argv[3];
     std::size_t argv_len[3];
-    argv[0] = "HSET";
+    argv[0] = "HGET";
     argv_len[0] = 4;
     argv[1] = key.c_str();
     argv_len[1] = key.length();
