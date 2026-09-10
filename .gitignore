@@ -3,3 +3,5 @@
 /.omo/
 /build/
 .idea
+.vscode/launch.json
+.vscode/setting.json
