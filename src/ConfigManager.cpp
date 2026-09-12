@@ -36,27 +36,6 @@ ConfigManager::ConfigManager()
     }
 }
 
-ConfigManager::~ConfigManager()
-{
-    m_configMap.clear();
-}
-
-ConfigManager::ConfigManager(const ConfigManager &other)
-{
-    m_configMap = other.m_configMap;
-}
-
-ConfigManager &ConfigManager::operator=(const ConfigManager &other)
-{
-    if (&other == this)
-    {
-        return *this;
-    }
-
-    m_configMap = other.m_configMap;
-    return *this;
-}
-
 SectionInfo ConfigManager::operator[](const std::string &section)
 {
     if (!m_configMap.contains(section))

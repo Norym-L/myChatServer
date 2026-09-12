@@ -3,7 +3,7 @@ project(GateServer)
 
 set(CMAKE_CXX_STANDARD 20)
 
-find_package(Boost REQUIRED COMPONENTS filesystem)
+find_package(Boost REQUIRED COMPONENTS filesystem charconv)
 find_package(jsoncpp REQUIRED)
 find_package(gRPC REQUIRED)
 find_package(redis++ REQUIRED)
@@ -61,6 +61,7 @@ target_include_directories(GateServer PRIVATE ${PROTO_OUT_DIR})
 target_link_libraries(GateServer PRIVATE
         Boost::boost
         Boost::filesystem
+        Boost::charconv
         JsonCpp::JsonCpp
         gRPC::grpc++
         redis++::redis++_static

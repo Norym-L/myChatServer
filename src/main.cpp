@@ -10,12 +10,10 @@
 
 int main()
 {
-    const std::string gate_post_str = ConfigManager::GetInstance()["GateServer"]["port"];
-    unsigned short gate_port = std::stoi(gate_post_str);
-
     try
     {
-        auto port = static_cast<unsigned short>(8080);
+        const auto gate_port_str = ConfigManager::GetInstance()["GateServer"]["port"];
+        const auto port = static_cast<unsigned short>(std::stoi(gate_port_str));
         net::io_context ioc{1};
         boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);
         signals.async_wait([&ioc](const boost::system::error_code &error, int signal_number)

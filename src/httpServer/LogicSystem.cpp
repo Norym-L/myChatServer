@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "RedisManager.h"
+#include "../sql/mysql/MySqlManager.h"
 
 LogicSystem::~LogicSystem() = default;
 
@@ -66,7 +67,7 @@ LogicSystem::LogicSystem()
                 Json::Value src_root;
 
                 bool parse_success = reader.parse(body_str, src_root);
-                if (!parse_success |
+                if (!parse_success ||
                     !src_root.isMember("email"))
                 {
                     std::cout << "Failed to parse Json data!" << std::endl;
@@ -140,12 +141,22 @@ LogicSystem::LogicSystem()
                     return true; // 只是参数不对，不需要[断开连接]更严重false
                 }
 
+                //查找数据库判断用户是否存在
+                int uid = MySqlManager::GetInstance().registerUser(email, name, password);
+                if (uid == 0 || uid == -1)
+                {
+                    std::cout << " user or email exist" << std::endl;
+                    root["error"] = static_cast<int>(ErrorCode::USER_EXIST);
+                    std::string jsonstr = root.toStyledString();
+                    beast::ostream(connection->m_response.body()) << jsonstr;
+                    return true;
+                }
+
                 root["error"] = static_cast<int>(ErrorCode::SUCCESS);
+                root["uid"] = uid;
                 root["email"] = email;
                 root["user"] = name;
                 root["password"] = password;
-                root["confirm"] = confirm;
-                root["verify_code"] = src_root["verify_code"].asString();
                 auto json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
                 return true;

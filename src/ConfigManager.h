@@ -7,27 +7,9 @@
 struct SectionInfo
 {
     SectionInfo() = default;
-
-    ~SectionInfo()
-    {
-        m_sectionDatas.clear();
-    }
-
-    SectionInfo(const SectionInfo &other)
-    {
-        m_sectionDatas = other.m_sectionDatas;
-    }
-
-    SectionInfo &operator=(const SectionInfo &other)
-    {
-        if (&other == this) // 自己拷贝自己
-        {
-            return *this;
-        }
-
-        m_sectionDatas = other.m_sectionDatas;
-        return *this;
-    }
+    ~SectionInfo() = default;
+    SectionInfo(const SectionInfo &other) = default;
+    SectionInfo &operator=(const SectionInfo &other) = default;
 
     std::map<std::string, std::string> m_sectionDatas;
 
@@ -47,9 +29,9 @@ class ConfigManager : public TSingLeton<ConfigManager>
     friend class TSingLeton;
 
 public:
-    ~ConfigManager();
-    ConfigManager(const ConfigManager &other);
-    ConfigManager &operator=(const ConfigManager &other);
+    ~ConfigManager() = default;
+    ConfigManager(const ConfigManager &other) = delete;
+    ConfigManager &operator=(const ConfigManager &other) = delete;
     SectionInfo operator[](const std::string &section);
 
 private:

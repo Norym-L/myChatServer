@@ -21,16 +21,16 @@ RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, con
         }
 
         const auto reply = static_cast<redisReply *>(redisCommand(context, "AUTH %s", password.c_str()));
-        if (reply->type == REDIS_REPLY_ERROR)
+        if (reply == nullptr || reply->type == REDIS_REPLY_ERROR)
         {
-            std::cerr << "redis passward not true \n";
+            std::cerr << "redis password not true \n";
             freeReplyObject(reply);
             redisFree(context);
             continue;
         }
 
         freeReplyObject(reply);
-        std::cout << "redis passward true \n";
+        std::cout << "redis password true \n";
         m_connections.push(context);
     }
 }
@@ -109,18 +109,14 @@ bool RedisManager::get(const std::string &key, std::string &value) const
     }
 
     const auto reply = static_cast<redisReply *>(redisCommand(connect, "GET %s", key.c_str()));
-    if (reply == nullptr)
+    if (reply == nullptr || reply->type != REDIS_REPLY_STRING)
     {
         std::cerr << "redis [GET " << key << " ] failed \n";
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+        }
         m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
-        return false;
-    }
-    if (reply->type != REDIS_REPLY_STRING)
-    {
-        std::cerr << "redis [GET " << key << " ] failed \n";
-        m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
         return false;
     }
 
@@ -142,17 +138,16 @@ bool RedisManager::set(const std::string &key, const std::string &value) const
 
     if (reply == nullptr)
     {
-        std::cerr << "redis Failed to Execut command [ SET " << key << " " << value << " ] \n";
+        std::cerr << "redis Failed to execute command [ SET " << key << " " << value << " ] \n";
         m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
         return false;
     }
 
-    if (!(reply->type == REDIS_REPLY_STATUS && (strcmp(reply->str, "OK") == 0) || strcmp(reply->str, "ok")))
+    if (!(reply->type == REDIS_REPLY_STATUS && (strcmp(reply->str, "OK") == 0)))
     {
-        std::cerr << "redis Failed to Execut command [ SET " << key << " " << value << " ] \n";
-        m_connectPool->returnConnection(connect);
+        std::cerr << "redis Failed to execute command [ SET " << key << " " << value << " ] \n";
         freeReplyObject(reply);
+        m_connectPool->returnConnection(connect);
         return false;
     }
 
@@ -201,9 +196,12 @@ bool RedisManager::lPop(const std::string &key, std::string &value) const
     const auto reply = static_cast<redisReply *>(redisCommand(connect, "LPOP %s", key.c_str()));
     if (reply == nullptr || reply->type == REDIS_REPLY_NIL)
     {
-        std::cerr << "redis Failed to Execut command [ LPOP " << key << " ] \n";
+        std::cerr << "redis Failed to execute command [ LPOP " << key << " ] \n";
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+        }
         m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
         return false;
     }
     value = reply->str;
@@ -252,9 +250,12 @@ bool RedisManager::rPop(const std::string &key, std::string &value) const
     const auto reply = static_cast<redisReply *>(redisCommand(connect, "RPOP %s", key.c_str()));
     if (reply == nullptr || reply->type == REDIS_REPLY_NIL)
     {
-        std::cerr << "redis Failed to Execut command [ RPOP " << key << " ] \n";
+        std::cerr << "redis Failed to execute command [ RPOP " << key << " ] \n";
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+        }
         m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
         return false;
     }
     value = reply->str;
