@@ -56,6 +56,8 @@ add_executable(GateServer
         ${PROTO_SRCS} ${GRPC_SRCS}
 )
 
+add_subdirectory(tests)
+
 target_include_directories(GateServer PRIVATE ${PROTO_OUT_DIR})
 
 target_link_libraries(GateServer PRIVATE
@@ -67,6 +69,7 @@ target_link_libraries(GateServer PRIVATE
         redis++::redis++_static
         ws2_32
         mswsock
+        libsodium
 )
 
 # 构建后自动复制 config.ini 到输出目录

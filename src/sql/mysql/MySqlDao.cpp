@@ -2,6 +2,7 @@
 #include <boost/mysql.hpp>
 
 #include "../../ConfigManager.h"
+#include "../../utils/PasswordVerify.h"
 
 SqlConnection::SqlConnection(mysql::tcp_ssl_connection connection, const std::int64_t last_operation_time)
     : connection(std::make_unique<mysql::tcp_ssl_connection>(std::move(connection))),
@@ -123,8 +124,9 @@ int MySqlDao::registerUser(const std::string &email, const std::string &name, co
     try
     {
         const auto sql = connection->connection->prepare_statement("CALL reg_user(?, ?, ?, @result)");
+        auto argon2id_password = PasswordVerify::hashPassword(password); // argon2id加密密码
         mysql::results result;
-        connection->connection->execute(sql.bind(name, email, password), result);
+        connection->connection->execute(sql.bind(name, email, argon2id_password), result);
 
         mysql::results out_result;
         connection->connection->execute("SELECT @result", out_result);
@@ -139,12 +141,12 @@ int MySqlDao::registerUser(const std::string &email, const std::string &name, co
         m_pool->returnConnection(std::move(connection));
         return -1;
     }
-    catch (mysql::error_with_diagnostics& e)
+    catch (mysql::error_with_diagnostics &e)
     {
         std::cerr << "MySQL error: " << e.what() << std::endl;
         std::cerr << "Server diagnostics: " << e.get_diagnostics().server_message() << std::endl;
     }
-    catch (const std::exception& e)
+    catch (const std::exception &e)
     {
         std::cerr << "Error: " << e.what() << std::endl;
     }
