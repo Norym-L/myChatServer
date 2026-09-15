@@ -5,9 +5,14 @@ int MySqlManager::registerUser(const std::string &email, const std::string &name
     return m_mySqlDao.registerUser(email, name, password);
 }
 
-bool MySqlManager::updatePassword(const std::string &email, const std::string &password) const
+bool MySqlManager::checkIsAccountMatchEmail(const int account, const std::string &email) const
 {
-    return m_mySqlDao.updatePassword(email, password);
+    return m_mySqlDao.checkIsAccountMatchEmail(email, account);
+}
+
+bool MySqlManager::updatePassword(const int account, const std::string &password) const
+{
+    return m_mySqlDao.updatePassword(account, password);
 }
 
 MySqlManager::MySqlManager() {}

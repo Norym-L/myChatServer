@@ -60,7 +60,7 @@ LogicSystem::LogicSystem()
             [](std::shared_ptr<HttpConnection> connection)
             {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
-                std::cout << "receive body is " << body_str << std::endl;
+                std::cout << "receive body is " << body_str << "\n";
                 connection->m_response.set(http::field::content_type, "text/json");
                 Json::Value root;
                 Json::Reader reader;
@@ -70,7 +70,7 @@ LogicSystem::LogicSystem()
                 if (!parse_success ||
                     !src_root.isMember("email"))
                 {
-                    std::cout << "Failed to parse Json data!" << std::endl;
+                    std::cout << "Failed to parse Json data!" << "\n";
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -79,7 +79,7 @@ LogicSystem::LogicSystem()
 
                 auto email = src_root["email"].asString();
                 auto rsp = VerifyGrpcClient::GetInstance().getverifyCode(email);
-                std::cout << "email is: " << email << std::endl;
+                std::cout << "email is: " << email << "\n";
                 root["error"] = rsp.error();
                 root["email"] = src_root["email"];
                 std::string json_str = root.toStyledString();
@@ -91,7 +91,7 @@ LogicSystem::LogicSystem()
             [](std::shared_ptr<HttpConnection> connection)
             {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
-                std::cout << "receive body is " << body_str << std::endl;
+                std::cout << "receive body is " << body_str << "\n";
                 connection->m_response.set(http::field::content_type, "text/json");
 
                 Json::Reader reader;
@@ -100,7 +100,7 @@ LogicSystem::LogicSystem()
 
                 if (!reader.parse(body_str, src_root))
                 {
-                    std::cout << "Failed to parse Json data!" << std::endl;
+                    std::cout << "Failed to parse Json data! \n";
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -114,7 +114,7 @@ LogicSystem::LogicSystem()
                 // 密码不一致
                 if (password != confirm)
                 {
-                    std::cout << "password is not equal to confirm" << std::endl;
+                    std::cout << "password is not equal to confirm \n";
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_ERROR);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -126,7 +126,7 @@ LogicSystem::LogicSystem()
 
                 if (!b_get_verify)
                 {
-                    std::cout << "get verify code failed" << std::endl;
+                    std::cout << "get verify code failed" << "\n";
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_EXPIRED);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -134,7 +134,7 @@ LogicSystem::LogicSystem()
                 }
                 if (verify_code != src_root["verify_code"].asString())
                 {
-                    std::cout << "verify code error: " << verify_code << std::endl;
+                    std::cout << "verify code error: " << verify_code << "\n";
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_ERROR);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -145,7 +145,7 @@ LogicSystem::LogicSystem()
                 int uid = MySqlManager::GetInstance().registerUser(email, name, password);
                 if (uid == 0 || uid == -1)
                 {
-                    std::cout << " user or email exist" << std::endl;
+                    std::cout << " user or email exist \n";
                     root["error"] = static_cast<int>(ErrorCode::USER_EXIST);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
@@ -183,6 +183,7 @@ LogicSystem::LogicSystem()
                    return true;
                }
 
+               auto account = src_root["user"].asInt();
                auto email = src_root["email"].asString();
                auto password = src_root["password"].asString();
 
@@ -199,25 +200,35 @@ LogicSystem::LogicSystem()
 
                if (verify_code != src_root["verify_code"].asString())
                {
-                   std::cout << " verify code error" << std::endl;
+                   std::cout << " verify code error \n";
                    root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_ERROR);
                    std::string jsonstr = root.toStyledString();
                    beast::ostream(connection->m_response.body()) << jsonstr;
                    return true;
                }
 
+               bool b_accountValid = MySqlManager::GetInstance().checkIsAccountMatchEmail(account, email);
+               if (!b_accountValid)
+               {
+                   std::cout << " check account match email failed \n";
+                   root["error"] = static_cast<int>(ErrorCode::EMAIL_NOT_MATCH);
+                   std::string jsonstr = root.toStyledString();
+                   beast::ostream(connection->m_response.body()) << jsonstr;
+                   return true;
+               }
+
                //更新密码为最新密码
-               bool b_up = MySqlManager::GetInstance().updatePassword(email, password);
+               bool b_up = MySqlManager::GetInstance().updatePassword(account, password);
                if (!b_up)
                {
-                   std::cout << " update password failed" << std::endl;
+                   std::cout << " update password failed \n";
                    root["error"] = static_cast<int>(ErrorCode::PASSWORD_UP_FAILED);
                    std::string jsonstr = root.toStyledString();
                    beast::ostream(connection->m_response.body()) << jsonstr;
                    return true;
                }
 
-               std::cout << "succeed to update password" << password << std::endl;
+               std::cout << "succeed to update password" << password << "\n";
                root["error"] = 0;
                root["email"] = email;
                root["passwd"] = password;

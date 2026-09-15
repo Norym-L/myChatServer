@@ -74,7 +74,9 @@ public:
      * @return 0 成功
      */
     int registerUser(const std::string &email, const std::string &name, const std::string &password) const;
-    bool updatePassword(const std::string & email, const std::string & password) const;
+
+    bool checkIsAccountMatchEmail(const std::string &email, int account) const;
+    bool updatePassword(int account, const std::string &password) const;
 
 private:
     std::unique_ptr<SqlConnectionPool> m_pool;
