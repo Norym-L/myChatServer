@@ -55,7 +55,7 @@ LogicSystem::LogicSystem()
                            << " value is " << element.second << "\n";
                }
            });
-
+    /// 获取验证码
     regPost("/get_Verifycode",
             [](std::shared_ptr<HttpConnection> connection)
             {
@@ -86,7 +86,7 @@ LogicSystem::LogicSystem()
                 beast::ostream(connection->m_response.body()) << json_str;
                 return true;
             });
-
+    /// 用户注册
     regPost("/user_register",
             [](std::shared_ptr<HttpConnection> connection)
             {
@@ -161,4 +161,69 @@ LogicSystem::LogicSystem()
                 beast::ostream(connection->m_response.body()) << json_str;
                 return true;
             });
+    /// 用户重置密码
+    regPost("/reset_password",
+           [](std::shared_ptr<HttpConnection> connection)
+           {
+               auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
+               std::cout << "receive body is " << body_str << "\n";
+               connection->m_response.set(http::field::content_type, "text/json");
+
+               Json::Value root;
+               Json::Reader reader;
+               Json::Value src_root;
+
+               bool parse_success = reader.parse(body_str, src_root);
+               if (!parse_success)
+               {
+                   std::cout << "Failed to parse JSON data! \n";
+                   root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
+                   std::string json_str = root.toStyledString();
+                   beast::ostream(connection->m_response.body()) << json_str;
+                   return true;
+               }
+
+               auto email = src_root["email"].asString();
+               auto password = src_root["password"].asString();
+
+               std::string verify_code;
+               bool b_get_verify = RedisManager::GetInstance().get(CODE_PREFIX + src_root["email"].asString(), verify_code);
+               if (!b_get_verify)
+               {
+                   std::cout << "get verify code expired \n";
+                   root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_EXPIRED);
+                   std::string json_str = root.toStyledString();
+                   beast::ostream(connection->m_response.body()) << json_str;
+                   return true;
+               }
+
+               if (verify_code != src_root["verify_code"].asString())
+               {
+                   std::cout << " verify code error" << std::endl;
+                   root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_ERROR);
+                   std::string jsonstr = root.toStyledString();
+                   beast::ostream(connection->m_response.body()) << jsonstr;
+                   return true;
+               }
+
+               //更新密码为最新密码
+               bool b_up = MySqlManager::GetInstance().updatePassword(email, password);
+               if (!b_up)
+               {
+                   std::cout << " update password failed" << std::endl;
+                   root["error"] = static_cast<int>(ErrorCode::PASSWORD_UP_FAILED);
+                   std::string jsonstr = root.toStyledString();
+                   beast::ostream(connection->m_response.body()) << jsonstr;
+                   return true;
+               }
+
+               std::cout << "succeed to update password" << password << std::endl;
+               root["error"] = 0;
+               root["email"] = email;
+               root["passwd"] = password;
+               root["varifycode"] = src_root["varifycode"].asString();
+               std::string jsonstr = root.toStyledString();
+               beast::ostream(connection->m_response.body()) << jsonstr;
+               return true;
+           });
 }

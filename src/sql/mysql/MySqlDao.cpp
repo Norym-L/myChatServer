@@ -154,3 +154,35 @@ int MySqlDao::registerUser(const std::string &email, const std::string &name, co
     m_pool->returnConnection(std::move(connection));
     return -1;
 }
+
+bool MySqlDao::updatePassword(const std::string &email, const std::string &password) const
+{
+    auto connection = m_pool->getConnection();
+    if (!connection)
+    {
+        return false;
+    }
+
+    try
+    {
+        const auto sql = connection->connection->prepare_statement("UPDATE user SET password = ? WHERE email = ?");
+        auto argon2id_password = PasswordVerify::hashPassword(password); // argon2id加密密码
+        mysql::results result;
+        connection->connection->execute(sql.bind(argon2id_password, email), result);
+
+        m_pool->returnConnection(std::move(connection));
+        return true;
+    }
+    catch (mysql::error_with_diagnostics &e)
+    {
+        std::cerr << "MySQL error: " << e.what() << std::endl;
+        std::cerr << "Server diagnostics: " << e.get_diagnostics().server_message() << std::endl;
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+
+    m_pool->returnConnection(std::move(connection));
+    return false;
+}
