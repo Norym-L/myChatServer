@@ -14,7 +14,7 @@ using grpc::ClientContext;
 
 using message::GetVerifyReq;
 using message::GetVerifyRsp;
-using message::VerifyServer;
+using message::VerifyService;
 
 #include <queue>
 #include <atomic>
@@ -30,17 +30,17 @@ public:
     void close();
 
     /// 获取连接
-    std::unique_ptr<VerifyServer::Stub> getConnection();
+    std::unique_ptr<VerifyService::Stub> getConnection();
 
     /// 回收连接
-    void returnConnection(std::unique_ptr<VerifyServer::Stub> context);
+    void returnConnection(std::unique_ptr<VerifyService::Stub> context);
 
 private:
     std::atomic<bool> m_beStop;
     std::size_t m_poolSize;
     std::string m_host;
     std::string m_prot;
-    std::queue<std::unique_ptr<VerifyServer::Stub>> m_connections;
+    std::queue<std::unique_ptr<VerifyService::Stub>> m_connections;
     std::condition_variable m_condition;
     std::mutex m_mutex; //TODO 改双锁，队列头尾各一把，提高并发性能
 };

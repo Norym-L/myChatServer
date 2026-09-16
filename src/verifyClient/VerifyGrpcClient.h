@@ -14,7 +14,7 @@ using grpc::ClientContext;
 
 using message::GetVerifyReq;
 using message::GetVerifyRsp;
-using message::VerifyServer;
+using message::VerifyService;
 
 class VerifyGrpcClient : public TSingLeton<VerifyGrpcClient>
 {

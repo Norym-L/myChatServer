@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package message;
 
-service VerifyServer
+service VerifyService
 {
   rpc GetVerifyCode (GetVerifyReq) returns (GetVerifyRsp) {}
 }
@@ -17,4 +17,20 @@ message GetVerifyRsp
   int32 error = 1;
   string email = 2;
   string code = 3;
+}
+
+service StatusService
+{
+  rpc GetChatServer (GetChatServerReq) returns (GetChatServerRsp) {}
+}
+
+message GetChatServerReq {
+  int32 uid = 1;
+}
+
+message GetChatServerRsp {
+  int32 error = 1;
+  string host = 2;
+  string port = 3;
+  string token = 4;
 }

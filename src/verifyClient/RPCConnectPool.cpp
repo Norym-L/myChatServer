@@ -14,7 +14,7 @@ RPCConnectPool::RPCConnectPool(const std::size_t pool_size, std::string host, st
         const std::shared_ptr<Channel> channel = grpc::CreateChannel(
         std::format("{}:{}", m_host, m_prot),
         grpc::InsecureChannelCredentials());
-        m_connections.push(VerifyServer::NewStub(channel));
+        m_connections.push(VerifyService::NewStub(channel));
     }
 }
 
@@ -34,7 +34,7 @@ void RPCConnectPool::close()
     m_condition.notify_all(); // 通知所有线程
 }
 
-std::unique_ptr<VerifyServer::Stub> RPCConnectPool::getConnection()
+std::unique_ptr<VerifyService::Stub> RPCConnectPool::getConnection()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
     // 如果m_connections.empty()，会把线程挂起并释放锁，等待 notify_all，notify_one 来唤醒并继续加锁
@@ -57,7 +57,7 @@ std::unique_ptr<VerifyServer::Stub> RPCConnectPool::getConnection()
     return context;
 }
 
-void RPCConnectPool::returnConnection(std::unique_ptr<VerifyServer::Stub> context)
+void RPCConnectPool::returnConnection(std::unique_ptr<VerifyService::Stub> context)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_beStop)
