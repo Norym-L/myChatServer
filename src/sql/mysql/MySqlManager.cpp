@@ -15,4 +15,9 @@ bool MySqlManager::updatePassword(const int account, const std::string &password
     return m_mySqlDao.updatePassword(account, password);
 }
 
+bool MySqlManager::chechIsPasswordMatchAccount(const int account, const std::string &password) const
+{
+    return m_mySqlDao.chechIsPasswordMAtchAccount(password, account);
+}
+
 MySqlManager::MySqlManager() {}

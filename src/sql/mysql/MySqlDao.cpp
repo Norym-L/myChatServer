@@ -223,3 +223,41 @@ bool MySqlDao::updatePassword(const int account, const std::string &password) co
     m_pool->returnConnection(std::move(connection));
     return false;
 }
+
+bool MySqlDao::chechIsPasswordMAtchAccount(const std::string &password, int account) const
+{
+    auto connection = m_pool->getConnection();
+    if (!connection)
+    {
+        return false;
+    }
+
+    try
+    {
+        const auto sql = connection->connection->prepare_statement("SELECT password FROM user WHERE uid = ? LIMIT 1"); // 获取用户密码
+        mysql::results result;
+        connection->connection->execute(sql.bind(account), result);
+        if (result.rows().empty())
+        {
+            m_pool->returnConnection(std::move(connection));
+            return false;
+        }
+
+        auto argon2id_password = result.rows().at(0).at(0).as_string();
+        m_pool->returnConnection(std::move(connection));
+
+        return PasswordVerify::verifyPassword(password, argon2id_password);
+    }
+    catch (mysql::error_with_diagnostics &e)
+    {
+        std::cerr << "MySQL error: " << e.what() << std::endl;
+        std::cerr << "Server diagnostics: " << e.get_diagnostics().server_message() << std::endl;
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+
+    m_pool->returnConnection(std::move(connection));
+    return false;
+}

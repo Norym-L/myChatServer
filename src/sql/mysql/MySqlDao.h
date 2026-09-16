@@ -77,6 +77,7 @@ public:
 
     bool checkIsAccountMatchEmail(const std::string &email, int account) const;
     bool updatePassword(int account, const std::string &password) const;
+    bool chechIsPasswordMAtchAccount(const std::string &password, int account) const;
 
 private:
     std::unique_ptr<SqlConnectionPool> m_pool;
