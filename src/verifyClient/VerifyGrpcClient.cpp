@@ -1,6 +1,7 @@
 #include "VerifyGrpcClient.h"
 
 #include <memory>
+#include <spdlog/spdlog.h>
 #include "../ConfigManager.h"
 
 GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string &email) const
@@ -20,7 +21,7 @@ GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string &email) const
     else
     {
         m_pool->returnConnection(std::move(stub));
-        std::cerr << "GetVerifyCode Error error_code: " << status.error_code() << std::endl;
+        spdlog::error("[VerifyGrpcClient] GetVerifyCode Error error_code: {}", status.error_code());
         reply.set_error(static_cast<int32_t>(ErrorCode::RPC_FAILED));
         return reply;
     }
@@ -28,7 +29,7 @@ GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string &email) const
 
 VerifyGrpcClient::VerifyGrpcClient()
 {
-    auto& config = ConfigManager::GetInstance();
+    auto &config = ConfigManager::GetInstance();
     auto host = config["VerifyServer"]["host"];
     auto port = config["VerifyServer"]["port"];
     m_pool = std::make_unique<RPCConnectPool>(5, host, port);

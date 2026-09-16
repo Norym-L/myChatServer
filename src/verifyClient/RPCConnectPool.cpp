@@ -12,8 +12,8 @@ RPCConnectPool::RPCConnectPool(const std::size_t pool_size, std::string host, st
     for (std::size_t i = 0; i < m_poolSize; ++i)
     {
         const std::shared_ptr<Channel> channel = grpc::CreateChannel(
-        std::format("{}:{}", m_host, m_prot),
-        grpc::InsecureChannelCredentials());
+            std::format("{}:{}", m_host, m_prot),
+            grpc::InsecureChannelCredentials());
         m_connections.push(VerifyService::NewStub(channel));
     }
 }

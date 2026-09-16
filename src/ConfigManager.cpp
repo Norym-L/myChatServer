@@ -1,10 +1,11 @@
 #include "ConfigManager.h"
+#include <spdlog/spdlog.h>
 
 ConfigManager::ConfigManager()
 {
     const auto current_path = boost::filesystem::current_path();
     const auto config_path = current_path / "config.ini";
-    std::cout << "Config path: " << config_path << std::endl;
+    spdlog::info("[ConfigManager] Config path: {}", config_path.string());
 
     boost::property_tree::ptree ptree;
     boost::property_tree::read_ini(config_path.string(), ptree);
@@ -28,10 +29,10 @@ ConfigManager::ConfigManager()
 
     for (const auto &[name, config]: m_configMap)
     {
-        std::cout << "[" << name << "]\n";
+        spdlog::debug("[ConfigManager] [{}]", name);
         for (const auto &[key, value]: config.m_sectionDatas)
         {
-            std::cout << key << "=" << value << "\n";
+            spdlog::debug("[ConfigManager] {}={}", key, value);
         }
     }
 }

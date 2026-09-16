@@ -24,10 +24,10 @@ GetChatServerRsp StatusGrpcClient::getChatServer(const int uid) const
 
 StatusGrpcClient::StatusGrpcClient()
 {
-    auto& config = ConfigManager::GetInstance();
+    auto &config = ConfigManager::GetInstance();
     m_pool.reset(new StatusConnectPool(
         5,
         config["StatusServer"]["host"],
         config["StatusServer"]["port"]
-    ));
+        ));
 }

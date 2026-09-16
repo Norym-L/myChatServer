@@ -16,6 +16,7 @@ using HttpHandler = std::function<void(std::shared_ptr<HttpConnection>)>;
 class LogicSystem : public TSingLeton<LogicSystem>
 {
     friend class TSingLeton<LogicSystem>;
+
 public:
     ~LogicSystem();
     bool handleGet(std::string path, std::shared_ptr<HttpConnection> connection);

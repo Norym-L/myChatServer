@@ -32,16 +32,30 @@ using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
 enum class ErrorCode
 {
-    SUCCESS             = 0,    // 成功
-    ERROR_JSON          = 1001, // Json解析错误
-    RPC_FAILED          = 1002, // RPC请求失败
-    VERIFY_CODE_EXPIRED = 1003, // 验证码过期
-    VERIFY_CODE_ERROR   = 1004, // 验证码错误
-    USER_EXIST          = 1005, // 用户已存在
-    PASSWORD_ERROR      = 1006, // 密码错误
-    EMAIL_NOT_MATCH     = 1007, // 邮箱不匹配
-    PASSWORD_UP_FAILED  = 1008, // 密码修改失败
-    PASSWORD_INVALID    = 1009, // 密码无效
+    SUCCESS              = 0,    // 成功
+    ERROR_JSON           = 1001, // Json解析错误
+    RPC_FAILED           = 1002, // RPC请求失败
+    VERIFY_CODE_EXPIRED  = 1003, // 验证码过期
+    VERIFY_CODE_ERROR    = 1004, // 验证码错误
+    USER_EXIST           = 1005, // 用户已存在
+    PASSWORD_ERROR       = 1006, // 密码错误
+    EMAIL_NOT_MATCH      = 1007, // 邮箱不匹配
+    PASSWORD_UP_FAILED   = 1008, // 密码修改失败
+    PASSWORD_INVALID     = 1009, // 密码无效
+    REGISTER_USER_FAILED = 1010, // 用户注册失败
+};
+
+#include <fmt/format.h>
+#include <grpcpp/support/status.h>
+
+template<>
+struct fmt::formatter<grpc::StatusCode> : fmt::formatter<int>
+{
+    // 复用 int 的 formatter，直接把枚举当整数格式化
+    auto format(grpc::StatusCode s, format_context &ctx) const
+    {
+        return fmt::formatter<int>::format(static_cast<int>(s), ctx);
+    }
 };
 
 #define CODE_PREFIX "code_"

@@ -1,6 +1,7 @@
 #include "CServer.h"
 #include "AsioIOServicePool.h"
 #include "HttpConnection.h"
+#include <spdlog/spdlog.h>
 
 CServer::CServer(net::io_context &ioc, const unsigned short &port)
     : m_acceptor(ioc, tcp::endpoint(tcp::v4(), port)),
@@ -20,6 +21,7 @@ void CServer::start()
             // 出错放弃此链接，继续监听其他链接
             if (ec)
             {
+                spdlog::warn("[CServer] CServer link error: {} , create a new link", ec.what());
                 self->start();
                 return;
             }
@@ -31,7 +33,7 @@ void CServer::start()
         }
         catch (std::exception &exp)
         {
-            std::cout << exp.what() << std::endl;
+            spdlog::error("[CServer] CServer error: {}", exp.what());
         }
     });
 }

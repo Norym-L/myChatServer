@@ -1,11 +1,12 @@
 #include "../src/utils/PasswordVerify.h"
 #include <iostream>
+#include <spdlog/spdlog.h>
 
 int main()
 {
     std::string stored = PasswordVerify::hashPassword("123456");
-    std::cout << "stored = " << stored << "\n";
+    spdlog::info("stored = {}", stored);
 
-    std::cout << PasswordVerify::verifyPassword("123456", stored) << "\n"; // 1
-    std::cout << PasswordVerify::verifyPassword("wrong",  stored) << "\n"; // 0
+    spdlog::info("verify result: {}", PasswordVerify::verifyPassword("123456", stored)); // 1
+    spdlog::info("verify result: {}", PasswordVerify::verifyPassword("wrong", stored)); // 0
 }

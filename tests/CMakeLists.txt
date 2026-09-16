@@ -22,7 +22,9 @@ foreach (TEST_SRC IN LISTS TEST_SOURCES)
             ws2_32
             mswsock
             libsodium
+            spdlog::spdlog
+            fmt::fmt
     )
 
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
-endforeach()
+endforeach ()

@@ -19,7 +19,7 @@ using message::StatusService;
 class StatusConnectPool
 {
 public:
-    StatusConnectPool(const std::size_t size, const std::string& host, const std::string& port)
+    StatusConnectPool(const std::size_t size, const std::string &host, const std::string &port)
         : m_poolSize(size), m_host(host), m_port(port)
     {
         for (std::size_t i = 0; i < m_poolSize; ++i)
@@ -75,12 +75,13 @@ public:
         m_beStop = true;
         m_condition.notify_all();
     }
+
 private:
     std::atomic<bool> m_beStop{false};
     std::size_t m_poolSize;
     std::string m_host;
     std::string m_port;
-    std::queue<std::unique_ptr<StatusService::Stub>> m_connections;
+    std::queue<std::unique_ptr<StatusService::Stub> > m_connections;
     std::mutex m_mutex;
     std::condition_variable m_condition;
 };
@@ -88,9 +89,11 @@ private:
 class StatusGrpcClient : public TSingLeton<StatusGrpcClient>
 {
     friend class TSingLeton;
+
 public:
     ~StatusGrpcClient() = default;
     GetChatServerRsp getChatServer(int uid) const;
+
 private:
     StatusGrpcClient();
 

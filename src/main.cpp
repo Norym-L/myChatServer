@@ -5,11 +5,13 @@
 #include "const.h"
 
 #include <hiredis/hiredis.h>
+#include <spdlog/spdlog.h>
 
 #include "httpServer/RedisManager.h"
 
 int main()
 {
+    spdlog::default_logger()->set_level(static_cast<spdlog::level::level_enum>(std::stoi(ConfigManager::GetInstance()["LoggerLevel"]["default"])));
     try
     {
         const auto gate_port_str = ConfigManager::GetInstance()["GateServer"]["port"];
@@ -20,18 +22,19 @@ int main()
         {
             if (error)
             {
+                spdlog::error("error at signals cache");
                 return;
             }
             ioc.stop();
         });
 
         std::make_shared<CServer>(ioc, port)->start();
-        std::cout << "Gate Server listen on port: " << port << std::endl;
+        spdlog::info("Gate Server start and listen on port: {}", port);
         ioc.run();
     }
     catch (std::exception &exp)
     {
-        std::cerr << "error: " << exp.what() << std::endl;
+        spdlog::error("Gate Server start error: {}", exp.what());
         return EXIT_FAILURE;
     }
 }

@@ -21,7 +21,7 @@ class VerifyGrpcClient : public TSingLeton<VerifyGrpcClient>
     friend class TSingLeton;
 
 public:
-    [[nodiscard]] GetVerifyRsp getverifyCode(const std::string& email) const;
+    [[nodiscard]] GetVerifyRsp getverifyCode(const std::string &email) const;
 
 private:
     VerifyGrpcClient();

@@ -7,6 +7,8 @@ find_package(Boost REQUIRED COMPONENTS filesystem charconv)
 find_package(jsoncpp REQUIRED)
 find_package(gRPC REQUIRED)
 find_package(redis++ REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(fmt REQUIRED)
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
         "src/*.cpp"
@@ -21,7 +23,7 @@ file(GLOB_RECURSE PROTO_FILES CONFIGURE_DEPENDS
 set(PROTO_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY ${PROTO_OUT_DIR})
 
-foreach(PROTO_FILE ${PROTO_FILES})
+foreach (PROTO_FILE ${PROTO_FILES})
     get_filename_component(PROTO_NAME ${PROTO_FILE} NAME_WE)
 
     # 生成 protobuf 消息
@@ -49,7 +51,7 @@ foreach(PROTO_FILE ${PROTO_FILES})
 
     list(APPEND PROTO_SRCS "${PROTO_OUT_DIR}/${PROTO_NAME}.pb.cc")
     list(APPEND GRPC_SRCS "${PROTO_OUT_DIR}/${PROTO_NAME}.grpc.pb.cc")
-endforeach()
+endforeach ()
 
 add_executable(GateServer
         ${SOURCES}
@@ -70,6 +72,8 @@ target_link_libraries(GateServer PRIVATE
         ws2_32
         mswsock
         libsodium
+        spdlog::spdlog
+        fmt::fmt
 )
 
 # 构建后自动复制 config.ini 到输出目录

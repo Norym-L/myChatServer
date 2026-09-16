@@ -1,5 +1,6 @@
 #include "MySqlDao.h"
 #include <boost/mysql.hpp>
+#include <spdlog/spdlog.h>
 
 #include "../../ConfigManager.h"
 #include "../../utils/PasswordVerify.h"
@@ -45,12 +46,12 @@ SqlConnectionPool::SqlConnectionPool(
             connection->connect(*endpoints.begin(), params);
 
             // 包装成 SqlConnection 并加入连接池
-            auto sql_conn = std::make_unique<SqlConnection>(std::move(*connection), std::time(nullptr));
+            auto sql_conn = std::make_unique < SqlConnection > (std::move(*connection), std::time(nullptr));
             m_pool.push(std::move(sql_conn));
         }
         catch (const std::exception &e)
         {
-            std::cerr << "MySQL ConnectionPool: create connection failed [ NO." << i << " ] - " << e.what() << std::endl;
+            spdlog::error("[MySqlDao] MySQL ConnectionPool: create connection failed [ NO.{} ] - {}", i, e.what());
         }
     }
 }
@@ -99,13 +100,13 @@ void SqlConnectionPool::close()
 MySqlDao::MySqlDao()
 {
     auto &config = ConfigManager::GetInstance();
-    m_pool = std::make_unique<SqlConnectionPool>(
-        config["Mysql"]["host"],
-        std::stoi(config["Mysql"]["port"]),
-        "root",
-        config["Mysql"]["passwd"],
-        "chatserver",
-        3);
+    m_pool = std::make_unique < SqlConnectionPool > (
+                 config["Mysql"]["host"],
+                 std::stoi(config["Mysql"]["port"]),
+                 "root",
+                 config["Mysql"]["passwd"],
+                 "chatserver",
+                 3);
 }
 
 MySqlDao::~MySqlDao()
@@ -133,7 +134,7 @@ int MySqlDao::registerUser(const std::string &email, const std::string &name, co
         if (!out_result.rows().empty())
         {
             int ret_code = out_result.rows().at(0).at(0).as_int64();
-            std::cout << "Mysql Dao: register user return code: " << ret_code << std::endl;
+            spdlog::info("[MySqlDao] register user return code: {}", ret_code);
             m_pool->returnConnection(std::move(connection));
             return ret_code;
         }
@@ -143,12 +144,12 @@ int MySqlDao::registerUser(const std::string &email, const std::string &name, co
     }
     catch (mysql::error_with_diagnostics &e)
     {
-        std::cerr << "MySQL error: " << e.what() << std::endl;
-        std::cerr << "Server diagnostics: " << e.get_diagnostics().server_message() << std::endl;
+        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
+        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        spdlog::error("[MySqlDao] Error: {}", e.what());
     }
 
     m_pool->returnConnection(std::move(connection));
@@ -180,12 +181,12 @@ bool MySqlDao::checkIsAccountMatchEmail(const std::string &email, int account) c
     }
     catch (mysql::error_with_diagnostics &e)
     {
-        std::cerr << "MySQL error: " << e.what() << std::endl;
-        std::cerr << "Server diagnostics: " << e.get_diagnostics().server_message() << std::endl;
+        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
+        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        spdlog::error("[MySqlDao] Error: {}", e.what());
     }
 
     m_pool->returnConnection(std::move(connection));
@@ -212,12 +213,12 @@ bool MySqlDao::updatePassword(const int account, const std::string &password) co
     }
     catch (mysql::error_with_diagnostics &e)
     {
-        std::cerr << "MySQL error: " << e.what() << std::endl;
-        std::cerr << "Server diagnostics: " << e.get_diagnostics().server_message() << std::endl;
+        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
+        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        spdlog::error("[MySqlDao] Error: {}", e.what());
     }
 
     m_pool->returnConnection(std::move(connection));
@@ -250,12 +251,12 @@ bool MySqlDao::chechIsPasswordMAtchAccount(const std::string &password, int acco
     }
     catch (mysql::error_with_diagnostics &e)
     {
-        std::cerr << "MySQL error: " << e.what() << std::endl;
-        std::cerr << "Server diagnostics: " << e.get_diagnostics().server_message() << std::endl;
+        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
+        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        spdlog::error("[MySqlDao] Error: {}", e.what());
     }
 
     m_pool->returnConnection(std::move(connection));

@@ -1,4 +1,5 @@
 #include "AsioIOServicePool.h"
+#include <spdlog/spdlog.h>
 
 AsioIOServicePool::AsioIOServicePool(const std::size_t size)
     : m_ioServices(size),
@@ -24,12 +25,12 @@ AsioIOServicePool::AsioIOServicePool(const std::size_t size)
 AsioIOServicePool::~AsioIOServicePool()
 {
     stop();
-    std::cout << "AsioIOServicePool destruct" << std::endl;
+    spdlog::debug("[AsioIOServicePool] AsioIOServicePool destruct");
 }
 
 boost::asio::io_context &AsioIOServicePool::getIOServer()
 {
-    auto& service = m_ioServices[m_nextIOService];
+    auto &service = m_ioServices[m_nextIOService];
     ++m_nextIOService;
     if (m_nextIOService == m_ioServices.size())
     {
@@ -40,12 +41,12 @@ boost::asio::io_context &AsioIOServicePool::getIOServer()
 
 void AsioIOServicePool::stop()
 {
-    for (const auto& work : m_works)
+    for (const auto &work: m_works)
     {
         work->reset();
     }
 
-    for (auto& t : m_threads)
+    for (auto &t: m_threads)
     {
         t.join();
     }

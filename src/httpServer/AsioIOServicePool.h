@@ -17,11 +17,11 @@ public:
     using WorkPtr = std::unique_ptr<WorkGuard>;
 
     ~AsioIOServicePool();
-    AsioIOServicePool(const AsioIOServicePool&) = delete;
-    AsioIOServicePool& operator=(const AsioIOServicePool&) = delete;
+    AsioIOServicePool(const AsioIOServicePool &) = delete;
+    AsioIOServicePool &operator=(const AsioIOServicePool &) = delete;
 
     // 使用 轮询round-robin 的方式返回一个 io_server
-    boost::asio::io_context& getIOServer();
+    boost::asio::io_context &getIOServer();
     /// 停止服务池并释放资源
     void stop();
 
