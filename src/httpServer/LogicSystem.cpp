@@ -6,6 +6,7 @@
 
 #include "RedisManager.h"
 #include "../sql/mysql/MySqlManager.h"
+#include "../statusClient/StatusGrpcClient.h"
 
 LogicSystem::~LogicSystem() = default;
 
@@ -275,6 +276,17 @@ LogicSystem::LogicSystem()
                 }
 
                 // TODO 状态服务器连接
+                //查询StatusServer找到合适的连接
+                auto reply = StatusGrpcClient::GetInstance().getChatServer(account);
+                if (reply.error())
+                {
+                    spdlog::error("[LogicSystem] /user_login grpc get chat server failed, error is {}", reply.error());
+                    root["error"] = static_cast<int>(ErrorCode::RPC_FAILED);
+                    std::string jsonstr = root.toStyledString();
+                    beast::ostream(connection->m_response.body()) << jsonstr;
+                    return true;
+                }
+
                 spdlog::info("[LogicSystem] /user_login succeed login user uid: {}", account);
                 root["error"] = 0;
 

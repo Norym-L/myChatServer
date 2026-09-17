@@ -1,4 +1,6 @@
 #include "StatusGrpcClient.h"
+
+#include <memory>
 #include "../ConfigManager.h"
 
 GetChatServerRsp StatusGrpcClient::getChatServer(const int uid) const
@@ -25,9 +27,9 @@ GetChatServerRsp StatusGrpcClient::getChatServer(const int uid) const
 StatusGrpcClient::StatusGrpcClient()
 {
     auto &config = ConfigManager::GetInstance();
-    m_pool.reset(new StatusConnectPool(
+    m_pool = std::make_unique<StatusConnectPool>(
         5,
-        config["StatusServer"]["host"],
-        config["StatusServer"]["port"]
-        ));
+        config["StatusServerForClient"]["host"],
+        config["StatusServerForClient"]["port"]
+        );
 }

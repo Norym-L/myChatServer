@@ -92,7 +92,7 @@ class StatusGrpcClient : public TSingLeton<StatusGrpcClient>
 
 public:
     ~StatusGrpcClient() = default;
-    GetChatServerRsp getChatServer(int uid) const;
+    [[nodiscard]] GetChatServerRsp getChatServer(int uid) const;
 
 private:
     StatusGrpcClient();

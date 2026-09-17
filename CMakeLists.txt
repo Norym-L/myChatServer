@@ -15,6 +15,11 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
         "src/*.h"
 )
 
+file(GLOB_RECURSE STATUS_SERVER_SOURCES CONFIGURE_DEPENDS
+        "statusServer/*.cpp"
+        "statusServer/*.h"
+)
+
 file(GLOB_RECURSE PROTO_FILES CONFIGURE_DEPENDS
         "proto/*.proto"
 )
@@ -58,11 +63,36 @@ add_executable(GateServer
         ${PROTO_SRCS} ${GRPC_SRCS}
 )
 
+add_executable(StatusServer
+        ${STATUS_SERVER_SOURCES}
+        ${PROTO_SRCS} ${GRPC_SRCS}
+        src/sql/mysql/MySqlDao.cpp
+        src/sql/mysql/MySqlDao.h
+        src/sql/mysql/MySqlManager.cpp
+        src/sql/mysql/MySqlManager.h
+        src/ConfigManager.cpp
+        src/ConfigManager.h
+)
+
 add_subdirectory(tests)
 
 target_include_directories(GateServer PRIVATE ${PROTO_OUT_DIR})
+target_include_directories(StatusServer PRIVATE ${PROTO_OUT_DIR})
 
 target_link_libraries(GateServer PRIVATE
+        Boost::boost
+        Boost::filesystem
+        Boost::charconv
+        JsonCpp::JsonCpp
+        gRPC::grpc++
+        redis++::redis++_static
+        ws2_32
+        mswsock
+        libsodium
+        spdlog::spdlog
+        fmt::fmt
+)
+target_link_libraries(StatusServer PRIVATE
         Boost::boost
         Boost::filesystem
         Boost::charconv
