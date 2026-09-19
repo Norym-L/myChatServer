@@ -4,10 +4,9 @@
 
 #include <queue>
 
-#include "../../const.h"
+#include <const.h>
 #include <boost/mysql/tcp_ssl.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/ssl/context.hpp>
 
 namespace mysql = boost::mysql;
 namespace asio = boost::asio;

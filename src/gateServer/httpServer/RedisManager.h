@@ -4,7 +4,7 @@
 #include <queue>
 #include <hiredis/hiredis.h>
 
-#include "../const.h"
+#include <const.h>
 
 /// redis连接池
 class RedisConnectPool

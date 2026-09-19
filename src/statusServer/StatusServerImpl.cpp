@@ -1,8 +1,8 @@
 #include "StatusServerImpl.h"
-#include "../src/const.h"
+#include <const.h>
 #include <boost/uuid.hpp>
+#include <ConfigManager.h>
 
-#include "../src/ConfigManager.h"
 
 /// 生成token
 static std::string generate_unique_string()

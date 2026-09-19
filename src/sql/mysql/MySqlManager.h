@@ -2,7 +2,7 @@
 #define GATESERVER_MYSQLMANAGER_H
 
 #include "MySqlDao.h"
-#include "../../Singleton.h"
+#include <ConfigManager.h>
 
 class MySqlManager : public TSingLeton<MySqlManager>
 {

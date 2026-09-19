@@ -8,7 +8,7 @@
 #ifndef GATESERVER_HTTPCONNECTION_H
 #define GATESERVER_HTTPCONNECTION_H
 
-#include "../const.h"
+#include <const.h>
 
 class HttpConnection : public std::enable_shared_from_this<HttpConnection>
 {

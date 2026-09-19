@@ -3,7 +3,7 @@
 #include <string>
 
 #include "StatusServerImpl.h"
-#include "../src/ConfigManager.h"
+#include <ConfigManager.h>
 
 static void RunServer()
 {

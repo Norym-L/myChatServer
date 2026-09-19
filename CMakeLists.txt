@@ -10,14 +10,31 @@ find_package(redis++ REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
 
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
-        "src/*.cpp"
-        "src/*.h"
+set(PUBLIC_SOURCE
+        "src/ConfigManager.cpp"
+        "src/ConfigManager.h"
+        "src/const.h"
+        "src/Singleton.h"
+)
+
+file(GLOB_RECURSE SQL_SOURCES CONFIGURE_DEPENDS
+        "src/sql/*.cpp"
+        "src/sql/*.h"
+)
+
+file(GLOB_RECURSE GATE_SERVER_SOURCES CONFIGURE_DEPENDS
+        "src/gateServer/*.cpp"
+        "src/gateServer/*.h"
 )
 
 file(GLOB_RECURSE STATUS_SERVER_SOURCES CONFIGURE_DEPENDS
-        "statusServer/*.cpp"
-        "statusServer/*.h"
+        "src/statusServer/*.cpp"
+        "src/statusServer/*.h"
+)
+
+file(GLOB_RECURSE CHAT_SERVER_SOURCES CONFIGURE_DEPENDS
+        "src/chatServer/*.cpp"
+        "src/chatServer/*.h"
 )
 
 file(GLOB_RECURSE PROTO_FILES CONFIGURE_DEPENDS
@@ -59,25 +76,42 @@ foreach (PROTO_FILE ${PROTO_FILES})
 endforeach ()
 
 add_executable(GateServer
-        ${SOURCES}
+        ${GATE_SERVER_SOURCES}
         ${PROTO_SRCS} ${GRPC_SRCS}
+        ${PUBLIC_SOURCE}
+        ${SQL_SOURCES}
 )
 
 add_executable(StatusServer
         ${STATUS_SERVER_SOURCES}
         ${PROTO_SRCS} ${GRPC_SRCS}
-        src/sql/mysql/MySqlDao.cpp
-        src/sql/mysql/MySqlDao.h
-        src/sql/mysql/MySqlManager.cpp
-        src/sql/mysql/MySqlManager.h
-        src/ConfigManager.cpp
-        src/ConfigManager.h
+        ${PUBLIC_SOURCE}
+        ${SQL_SOURCES}
+)
+
+add_executable(ChatServer
+        ${CHAT_SERVER_SOURCES}
+        ${PROTO_SRCS} ${GRPC_SRCS}
+        ${PUBLIC_SOURCE}
+        ${SQL_SOURCES}
 )
 
 add_subdirectory(tests)
 
-target_include_directories(GateServer PRIVATE ${PROTO_OUT_DIR})
-target_include_directories(StatusServer PRIVATE ${PROTO_OUT_DIR})
+target_include_directories(GateServer PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${PROTO_OUT_DIR}
+)
+
+target_include_directories(StatusServer PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${PROTO_OUT_DIR}
+)
+
+target_include_directories(ChatServer PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${PROTO_OUT_DIR}
+)
 
 target_link_libraries(GateServer PRIVATE
         Boost::boost

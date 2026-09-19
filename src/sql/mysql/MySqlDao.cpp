@@ -2,8 +2,8 @@
 #include <boost/mysql.hpp>
 #include <spdlog/spdlog.h>
 
-#include "../../ConfigManager.h"
-#include "../../utils/PasswordVerify.h"
+#include <ConfigManager.h>
+#include <utils/PasswordVerify.h>
 
 SqlConnection::SqlConnection(mysql::tcp_ssl_connection connection, const std::int64_t last_operation_time)
     : connection(std::make_unique<mysql::tcp_ssl_connection>(std::move(connection))),

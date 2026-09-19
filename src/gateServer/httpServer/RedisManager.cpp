@@ -4,7 +4,7 @@
 #include <utility>
 #include <spdlog/spdlog.h>
 
-#include "../ConfigManager.h"
+#include <ConfigManager.h>
 
 RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, const int port, const std::string &password)
     : m_poolSize(pool_size), m_host(std::move(host)), m_port(port), m_beStop(false)

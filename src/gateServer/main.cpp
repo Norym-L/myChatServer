@@ -1,8 +1,8 @@
 #include <iostream>
 
-#include "ConfigManager.h"
+#include "../ConfigManager.h"
 #include "httpServer/CServer.h"
-#include "const.h"
+#include "../const.h"
 
 #include <hiredis/hiredis.h>
 #include <spdlog/spdlog.h>

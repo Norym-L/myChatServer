@@ -5,7 +5,7 @@
 #include <boost/asio.hpp>
 #include <memory>
 
-#include "../Singleton.h"
+#include <Singleton.h>
 
 class AsioIOServicePool : public TSingLeton<AsioIOServicePool>
 {

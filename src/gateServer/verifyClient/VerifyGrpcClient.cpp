@@ -2,7 +2,7 @@
 
 #include <memory>
 #include <spdlog/spdlog.h>
-#include "../ConfigManager.h"
+#include <ConfigManager.h>
 
 GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string &email) const
 {

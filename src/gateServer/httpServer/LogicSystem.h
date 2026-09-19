@@ -8,7 +8,7 @@
 #ifndef GATESERVER_LOGICSYSTEM_H
 #define GATESERVER_LOGICSYSTEM_H
 
-#include "../const.h"
+#include <const.h>
 
 class HttpConnection;
 using HttpHandler = std::function<void(std::shared_ptr<HttpConnection>)>;

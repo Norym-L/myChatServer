@@ -5,8 +5,8 @@
 #include <message.grpc.pb.h>
 
 #include "RPCConnectPool.h"
-#include "../const.h"
-#include "../Singleton.h"
+#include <const.h>
+#include <Singleton.h>
 
 using grpc::Channel;
 using grpc::Status;

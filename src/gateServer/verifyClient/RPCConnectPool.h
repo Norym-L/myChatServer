@@ -6,7 +6,7 @@
 #include <grpcpp/grpcpp.h>
 #include <message.grpc.pb.h>
 
-#include "../const.h"
+#include <const.h>
 
 using grpc::Channel;
 using grpc::Status;
