@@ -1,0 +1,9 @@
+#ifndef GATESERVER_LOGICSYSTEM_H
+#define GATESERVER_LOGICSYSTEM_H
+
+
+class LogicSystem
+{};
+
+
+#endif //GATESERVER_LOGICSYSTEM_H

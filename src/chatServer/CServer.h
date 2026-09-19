@@ -1,0 +1,9 @@
+#ifndef GATESERVER_CSERVER_H
+#define GATESERVER_CSERVER_H
+
+
+class CServer
+{};
+
+
+#endif //GATESERVER_CSERVER_H
