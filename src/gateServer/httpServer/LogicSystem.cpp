@@ -5,7 +5,7 @@
 #include <spdlog/spdlog.h>
 
 #include "RedisManager.h"
-#include "../../sql/mysql/MySqlManager.h"
+#include <sql/mysql/MySqlManager.h>
 #include "../statusClient/StatusGrpcClient.h"
 
 LogicSystem::~LogicSystem() = default;

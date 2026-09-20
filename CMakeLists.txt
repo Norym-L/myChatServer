@@ -10,16 +10,9 @@ find_package(redis++ REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
 
-set(PUBLIC_SOURCE
-        "src/ConfigManager.cpp"
-        "src/ConfigManager.h"
-        "src/const.h"
-        "src/Singleton.h"
-)
-
-file(GLOB_RECURSE SQL_SOURCES CONFIGURE_DEPENDS
-        "src/sql/*.cpp"
-        "src/sql/*.h"
+file(GLOB_RECURSE PUBLIC_SOURCE CONFIGURE_DEPENDS
+        "src/public/*.cpp"
+        "src/public/*.h"
 )
 
 file(GLOB_RECURSE GATE_SERVER_SOURCES CONFIGURE_DEPENDS
@@ -79,37 +72,34 @@ add_executable(GateServer
         ${GATE_SERVER_SOURCES}
         ${PROTO_SRCS} ${GRPC_SRCS}
         ${PUBLIC_SOURCE}
-        ${SQL_SOURCES}
 )
 
 add_executable(StatusServer
         ${STATUS_SERVER_SOURCES}
         ${PROTO_SRCS} ${GRPC_SRCS}
         ${PUBLIC_SOURCE}
-        ${SQL_SOURCES}
 )
 
 add_executable(ChatServer
         ${CHAT_SERVER_SOURCES}
         ${PROTO_SRCS} ${GRPC_SRCS}
         ${PUBLIC_SOURCE}
-        ${SQL_SOURCES}
 )
 
 add_subdirectory(tests)
 
 target_include_directories(GateServer PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/public
         ${PROTO_OUT_DIR}
 )
 
 target_include_directories(StatusServer PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/public
         ${PROTO_OUT_DIR}
 )
 
 target_include_directories(ChatServer PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/public
         ${PROTO_OUT_DIR}
 )
 
@@ -139,7 +129,19 @@ target_link_libraries(StatusServer PRIVATE
         spdlog::spdlog
         fmt::fmt
 )
-
+target_link_libraries(ChatServer PRIVATE
+        Boost::boost
+        Boost::filesystem
+        Boost::charconv
+        JsonCpp::JsonCpp
+        gRPC::grpc++
+        redis++::redis++_static
+        ws2_32
+        mswsock
+        libsodium
+        spdlog::spdlog
+        fmt::fmt
+)
 # 构建后自动复制 config.ini 到输出目录
 add_custom_command(TARGET GateServer POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

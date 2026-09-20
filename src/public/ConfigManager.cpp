@@ -1,4 +1,4 @@
-#include "ConfigManager.h"
+#include <ConfigManager.h>
 #include <spdlog/spdlog.h>
 
 ConfigManager::ConfigManager()
