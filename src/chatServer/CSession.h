@@ -7,8 +7,7 @@
 #include <mutex>
 #include <queue>
 
-#include "const.h"
-#include "LogicSystem.h"
+#include <const.h>
 
 namespace chat
 {
@@ -60,11 +59,26 @@ class MessageNode
 {
     friend class CSession;
 
-private:
-    explicit MessageNode(std::uint8_t len = HEAD_TOTAL_LEN);
-    void clear();
+public:
+    ~MessageNode()
+    {
+        ::free(m_data);
+    }
 
-    char m_data[HEAD_TOTAL_LEN];
+private:
+    explicit MessageNode(const std::uint8_t len = HEAD_TOTAL_LEN)
+        : m_len(len)
+    {
+        m_data = static_cast<char*>(::malloc(sizeof(char) * len));
+    }
+
+    void clear() const
+    {
+        ::memset(m_data, 0, sizeof(char) * m_len);
+    }
+
+    char* m_data;
+    size_t m_len;
 };
 
 
@@ -73,10 +87,20 @@ class ReceiveNode
     friend class CSession;
     friend class LogicSystem;
 
-private:
-    explicit ReceiveNode(size_t len, short id);
+public:
+    ~ReceiveNode()
+    {
+        ::free(m_data);
+    }
 
-    char m_data[MAX_LENGTH];
+private:
+    explicit ReceiveNode(const size_t len, const short id)
+        : m_messageId(id), m_totalLen(len)
+    {
+        m_data = static_cast<char*>(::malloc(sizeof(char) * len));
+    }
+
+    char* m_data;
     short m_messageId;
     size_t m_currentLen = 0;
     size_t m_totalLen = MAX_LENGTH - 1;
@@ -87,10 +111,22 @@ class SendNode
     friend class CSession;
     friend class LogicSystem;
 
-private:
-    explicit SendNode(const char* message, size_t len, short message_id);
+public:
+    ~SendNode()
+    {
+        ::free(m_data);
+    }
 
-    char m_data[MAX_LENGTH];
+private:
+    explicit SendNode(const char* message, const size_t len, const short message_id)
+        : m_message_id(message_id), m_totalLen(len)
+    {
+        m_data = static_cast<char*>(::malloc(sizeof(char) * len));
+        ::memcpy(m_data, message, len);
+    }
+
+    char* m_data;
+    short m_message_id;
     size_t m_totalLen;
 };
 
@@ -100,7 +136,9 @@ class LogicNode
     friend class LogicSystem;
 
 private:
-    LogicNode(const std::shared_ptr<CSession>& session, const std::shared_ptr<ReceiveNode>& receive_node);
+    LogicNode(const std::shared_ptr<CSession>& session, const std::shared_ptr<ReceiveNode>& receive_node)
+        : m_session(session), m_receviceNdoe(receive_node)
+    {}
 
     std::shared_ptr<CSession> m_session;
     std::shared_ptr<ReceiveNode> m_receviceNdoe;

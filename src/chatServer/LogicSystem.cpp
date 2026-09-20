@@ -3,7 +3,11 @@
 #include <json/json.h>
 #include <json/reader.h>
 
+#include <Defer.h>
+#include <sql/mysql/MySqlManager.h>
+
 #include "CSession.h"
+#include "statusClient/StatusGrpcClient.h"
 
 namespace chat
 {
@@ -102,13 +106,51 @@ void LogicSystem::registerCallBacks()
         std::placeholders::_3);
 }
 
-void LogicSystem::loginHandler(std::shared_ptr<CSession>, const short& message_id, const std::string& message_data)
+void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const short& message_id, const std::string& message_data)
 {
     Json::Reader reader;
     Json::Value root;
     reader.parse(message_data, root);
     auto uid = root["uid"].asUInt64();
-    spdlog::info("[logic system] user login, id: {}, token: {}", uid, root["token"].asString());
-    //TODO 从状态服务器获取token检查是否匹配
+    auto token = root["token"].asString();
+    spdlog::info("[logic system] user login, id: {}, token: {}", uid, token);
+    // 从状态服务器获取token检查是否匹配
+    auto rsp = StatusGrpcClient::GetInstance().login(uid, token);
+    Json::Value return_value;
+    Defer defer([this, &return_value, session]()
+        {
+        (void) this;
+        const std::string return_str = return_value.toStyledString();
+        session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_LOGIN_RESP);
+        });
+
+    return_value["error"] = rsp.error();
+    if (rsp.error() != static_cast<uint16_t>(ErrorCode::SUCCESS))
+    {
+        return;
+    }
+    // 内存中查询用户
+    auto find_iter = m_users.find(uid);
+    std::shared_ptr<UserInfo> user_info = nullptr;
+    if (find_iter == m_users.end())
+    {
+        // 茶数据库
+        user_info = MySqlManager::GetInstance().getUser(uid);
+        if (user_info == nullptr)
+        {
+            return_value["error"] = static_cast<uint16_t>(ErrorCode::USER_UID_INVALID);
+            return;
+        }
+
+        m_users[uid] = user_info;
+    }
+    else
+    {
+        user_info = find_iter->second;
+    }
+
+    return_value["uid"] = uid;
+    return_value["token"] = rsp.token();
+    return_value["name"] = user_info->name;
 }
 }

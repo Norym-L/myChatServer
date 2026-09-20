@@ -3,6 +3,7 @@
 #include <boost/uuid.hpp>
 
 #include "LogicSystem.h"
+#include "CServer.h"
 
 namespace chat
 {
@@ -218,11 +219,8 @@ void CSession::handleWrite(const boost::system::error_code& error_code, std::sha
     }
 }
 
-void CSession::close() {}
-
-ReceiveNode::ReceiveNode(size_t len, short id) {}
-
-LogicNode::LogicNode(const std::shared_ptr<CSession>& session, const std::shared_ptr<ReceiveNode>& receive_node)
-    : m_session(session), m_receviceNdoe(receive_node)
-{}
+void CSession::close()
+{
+    m_beClose = true;
+}
 }

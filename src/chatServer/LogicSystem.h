@@ -7,14 +7,12 @@
 #include <functional>
 
 #include <Singleton.h>
-
-#include "const.h"
+#include <const.h>
 
 namespace chat
 {
 class LogicNode;
 class CSession;
-class UserInfo;
 
 using Function_CallBack = std::function<void(std::shared_ptr<CSession>, const short& message_id, const std::string& data)>;
 
@@ -32,7 +30,7 @@ private:
     void dealMessage();
 
     void registerCallBacks();
-    void loginHandler(std::shared_ptr<CSession>, const short& message_id, const std::string& message_data);
+    void loginHandler(const std::shared_ptr<CSession>&, const short& message_id, const std::string& message_data);
 
     std::mutex m_mutex;
     std::queue<std::shared_ptr<LogicNode> > m_messageQueue;

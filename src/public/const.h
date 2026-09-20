@@ -43,7 +43,29 @@ enum class ErrorCode
     PASSWORD_UP_FAILED   = 1008, // 密码修改失败
     PASSWORD_INVALID     = 1009, // 密码无效
     REGISTER_USER_FAILED = 1010, // 用户注册失败
+    USER_UID_INVALID     = 1011, // 非法用户id
 };
+
+
+#define MAX_LENGTH      (1024 * 2)
+#define HEAD_TOTAL_LEN  4 // tcp头部长度
+#define HEAD_ID_LEN     2 // tcp头部 message_id 长度
+#define HEAD_DATA_LEN   2 // tcp头部 message_len 长度
+#define MAX_SEND_QUEUE_LEN 4 // tcp发送队列最大长度
+
+enum MessageType : short
+{
+    MESSAGE_CHAT_LOGIN,
+    MESSAGE_CHAT_LOGIN_RESP,
+};
+
+struct UserInfo
+{
+    std::string token;
+    std::string name;
+    size_t uid;
+};
+
 
 #include <fmt/format.h>
 #include <grpcpp/support/status.h>
