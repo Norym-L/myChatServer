@@ -1,6 +1,8 @@
 #include "AsioIOServicePool.h"
 #include <spdlog/spdlog.h>
 
+namespace chat
+{
 AsioIOServicePool::AsioIOServicePool(const std::size_t size)
     : m_ioServices(size),
       m_works(size),
@@ -50,4 +52,5 @@ void AsioIOServicePool::stop()
     {
         t.join();
     }
+}
 }

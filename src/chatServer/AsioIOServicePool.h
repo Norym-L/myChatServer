@@ -5,8 +5,10 @@
 #include <boost/asio.hpp>
 #include <memory>
 
-#include <Singleton.h>
+#include <../public/Singleton.h>
 
+namespace chat
+{
 class AsioIOServicePool : public TSingLeton<AsioIOServicePool>
 {
     friend class TSingLeton;
@@ -32,5 +34,5 @@ private:
     std::vector<std::thread> m_threads;
     std::size_t m_nextIOService;
 };
-
+}
 #endif //GATESERVER_ASIOIOSERVICEPOOL_H
