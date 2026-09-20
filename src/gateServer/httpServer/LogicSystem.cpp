@@ -83,6 +83,17 @@ LogicSystem::LogicSystem()
                 spdlog::info("[LogicSystem] email is: {}", email);
                 root["error"] = rsp.error();
                 root["email"] = src_root["email"];
+#ifdef GATE_DEBUG
+                // debug模式下，获取验证码额外返回验证码
+                std::string verify_code;
+                bool b_get_verify = RedisManager::GetInstance().get(CODE_PREFIX + src_root["email"].asString(), verify_code);
+                if (!b_get_verify)
+                {
+                    verify_code = "there is no verify in redis!";
+                }
+                root["verify_code"] = verify_code;
+#endif
+
                 std::string json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
                 return true;

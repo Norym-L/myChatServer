@@ -86,6 +86,16 @@ add_executable(ChatServer
         ${PUBLIC_SOURCE}
 )
 
+target_compile_definitions(GateServer PRIVATE
+        $<$<CONFIG:Debug>:GATE_DEBUG>
+)
+target_compile_definitions(StatusServer PRIVATE
+        $<$<CONFIG:Debug>:STATUS_DEBUG>
+)
+target_compile_definitions(ChatServer PRIVATE
+        $<$<CONFIG:Debug>:CHAT_DEBUG>
+)
+
 add_subdirectory(tests)
 
 target_include_directories(GateServer PRIVATE
