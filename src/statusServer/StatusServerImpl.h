@@ -16,16 +16,26 @@ struct ChatServer
 {
     std::string host;
     std::string port;
+    std::string name;
+    size_t connection_count;
 };
 
-class StatusServerImpl : public StatusService::Service
+class StatusServerImpl final : public StatusService::Service
 {
 public:
     StatusServerImpl();
-    Status GetChatServer(grpc::ServerContext *context, const message::GetChatServerReq *request, message::GetChatServerRsp *response) override;
 
-    std::vector<ChatServer> m_servers;
-    int m_server_index{};
+    Status GetChatServer(grpc::ServerContext *context, const message::GetChatServerReq *request, message::GetChatServerRsp *response) override;
+    Status Login(grpc::ServerContext* context, const message::LoginReq* request, message::LoginRsp* response) override;
+
+private:
+    void insertToken(size_t uid, std::string token);
+    ChatServer getChatServer();
+
+    std::unordered_map<std::string, ChatServer> m_servers;
+    std::unordered_map<size_t, std::string> m_tokens;
+    std::mutex m_serverMutex;
+    std::mutex m_tokenMutex;
 };
 
 

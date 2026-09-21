@@ -1,5 +1,6 @@
 #include "StatusServerImpl.h"
 #include <const.h>
+#include <string_view>
 #include <boost/uuid.hpp>
 #include <ConfigManager.h>
 
@@ -18,22 +19,54 @@ StatusServerImpl::StatusServerImpl()
     ChatServer server;
     server.port = config["ChatServer1"]["port"];
     server.host = config["ChatServer1"]["host"];
-    m_servers.push_back(server);
+    server.name = config["ChatServer1"]["name"];
+    server.connection_count = 0;
+    m_servers.emplace(server.name, server);
 
     server.port = config["ChatServer2"]["port"];
     server.host = config["ChatServer2"]["host"];
-    m_servers.push_back(server);
+    server.name = config["ChatServer2"]["name"];
+    server.connection_count = 0;
+    m_servers.emplace(server.name, server);
+}
+
+ChatServer StatusServerImpl::getChatServer()
+{
+    std::lock_guard<std::mutex> lock(m_serverMutex);
+    auto min_server = m_servers.begin()->second;
+    for (const auto& server: m_servers | std::views::values)
+    {
+        if (server.connection_count < min_server.connection_count)
+        {
+            min_server = server;
+        }
+    }
+
+    m_servers[min_server.name].connection_count++;
+    return min_server;
 }
 
 Status StatusServerImpl::GetChatServer(grpc::ServerContext *context, const message::GetChatServerReq *request, message::GetChatServerRsp *response)
 {
-    std::string prefix("status server has receive: ");
-    m_server_index = (m_server_index++) % static_cast<int>(m_servers.size());
-    auto &[host, port] = m_servers[m_server_index];
-    spdlog::info("a new chat server has start at {}:{}", host, port);
-    response->set_host(host);
-    response->set_port(port);
-    response->set_error(static_cast<uint32_t>(ErrorCode::SUCCESS));
-    response->set_token(generate_unique_string());
+    constexpr std::string_view prefix("status server has received: ");
+    auto const& server = getChatServer();
+
+    spdlog::info("[status server] return a chat server that name: {}, at {}:{}", server.name, server.host, server.port);
+    response->set_host(server.host);
+    response->set_port(server.port);
+    response->set_error(static_cast<uint16_t>(ErrorCode::SUCCESS));
+    auto token = generate_unique_string();
+    response->set_token(token);
+    insertToken(request->uid(), token);
     return Status::OK;
+}
+
+Status StatusServerImpl::Login(grpc::ServerContext* context, const message::LoginReq* request, message::LoginRsp* response)
+{
+    return Service::Login(context, request, response);
+}
+
+void StatusServerImpl::insertToken(size_t uid, std::string token)
+{
+    m_tokens.emplace(uid, std::move(token));
 }
