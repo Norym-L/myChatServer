@@ -30,7 +30,7 @@ private:
     void dealMessage();
 
     void registerCallBacks();
-    void loginHandler(const std::shared_ptr<CSession>&, const short& message_id, const std::string& message_data);
+    void loginHandler(const std::shared_ptr<CSession>&, short message_id, const std::string& message_data);
 
     std::mutex m_mutex;
     std::queue<std::shared_ptr<LogicNode> > m_messageQueue;

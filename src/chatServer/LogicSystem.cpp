@@ -98,15 +98,16 @@ void LogicSystem::dealMessage()
 
 void LogicSystem::registerCallBacks()
 {
-    m_callbackFunctions[MessageType::MESSAGE_CHAT_LOGIN] = std::bind(
-        &LogicSystem::loginHandler,
-        this,
-        std::placeholders::_1,
-        std::placeholders::_2,
-        std::placeholders::_3);
+    m_callbackFunctions[MessageType::MESSAGE_CHAT_LOGIN] = [this](
+        const std::shared_ptr<CSession>& session,
+        const short message_id,
+        const std::string& message_data)
+            {
+            loginHandler(session, message_id, message_data);
+            };
 }
 
-void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const short& message_id, const std::string& message_data)
+void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const short message_id, const std::string& message_data)
 {
     Json::Reader reader;
     Json::Value root;
@@ -134,7 +135,7 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     std::shared_ptr<UserInfo> user_info = nullptr;
     if (find_iter == m_users.end())
     {
-        // 茶数据库
+        // 查数据库
         user_info = MySqlManager::GetInstance().getUser(uid);
         if (user_info == nullptr)
         {
