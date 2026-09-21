@@ -286,7 +286,6 @@ LogicSystem::LogicSystem()
                     return true;
                 }
 
-                // TODO 状态服务器连接
                 //查询StatusServer找到合适的连接
                 auto reply = StatusGrpcClient::GetInstance().getChatServer(account);
                 if (reply.error())
@@ -299,8 +298,13 @@ LogicSystem::LogicSystem()
                 }
 
                 spdlog::info("[LogicSystem] /user_login succeed login user uid: {}", account);
-                root["error"] = 0;
 
+                root["error"] = 0;
+                root["email"] = src_root["email"].asString();
+                root["uid"] = account;
+                root["token"] = reply.token();
+                root["host"] = reply.host();
+                root["port"] = reply.port();
                 auto json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
                 return true;
