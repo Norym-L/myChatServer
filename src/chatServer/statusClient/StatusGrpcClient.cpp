@@ -5,9 +5,26 @@
 
 namespace chat
 {
-message::LoginRsp StatusGrpcClient::login(size_t uid, const std::string& token)
+message::LoginRsp StatusGrpcClient::login(const size_t uid, const std::string& token) const
 {
-    // TODO
+    ClientContext context;
+    message::LoginReq request;
+    message::LoginRsp reply;
+    request.set_token(token);
+    request.set_uid(uid);
+    auto stub = m_pool->getConnection();
+    const Status status = stub->Login(&context, request, &reply);
+    if (status.ok())
+    {
+        m_pool->returnConnection(std::move(stub));
+        return reply;
+    }
+    else
+    {
+        m_pool->returnConnection(std::move(stub));
+        reply.set_error(static_cast<int32_t>(ErrorCode::RPC_FAILED));
+        return reply;
+    }
 }
 
 StatusGrpcClient::StatusGrpcClient()

@@ -15,7 +15,7 @@ static std::string generate_unique_string()
 
 StatusServerImpl::StatusServerImpl()
 {
-    auto &config = ConfigManager::GetInstance();
+    auto& config = ConfigManager::GetInstance();
     ChatServer server;
     server.port = config["ChatServer1"]["port"];
     server.host = config["ChatServer1"]["host"];
@@ -46,7 +46,7 @@ ChatServer StatusServerImpl::getChatServer()
     return min_server;
 }
 
-Status StatusServerImpl::GetChatServer(grpc::ServerContext *context, const message::GetChatServerReq *request, message::GetChatServerRsp *response)
+Status StatusServerImpl::GetChatServer(grpc::ServerContext* context, const message::GetChatServerReq* request, message::GetChatServerRsp* response)
 {
     constexpr std::string_view prefix("status server has received: ");
     auto const& server = getChatServer();
@@ -63,7 +63,25 @@ Status StatusServerImpl::GetChatServer(grpc::ServerContext *context, const messa
 
 Status StatusServerImpl::Login(grpc::ServerContext* context, const message::LoginReq* request, message::LoginRsp* response)
 {
-    return Service::Login(context, request, response);
+    const auto uid = request->uid();
+    auto token = request->token();
+    std::lock_guard<std::mutex> lock(m_tokenMutex);
+    const auto iter = m_tokens.find(uid);
+    if (iter == m_tokens.end())
+    {
+        response->set_error(ErrorCode::USER_UID_INVALID);
+        return Status::OK;
+    }
+    if (iter->second != token)
+    {
+        response->set_error(ErrorCode::USER_TOKEN_INVALID);
+        return Status::OK;
+    }
+
+    response->set_error(ErrorCode::SUCCESS);
+    response->set_uid(uid);
+    response->set_token(token);
+    return Status::OK;
 }
 
 void StatusServerImpl::insertToken(size_t uid, std::string token)

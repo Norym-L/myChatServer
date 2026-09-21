@@ -143,6 +143,7 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
             return;
         }
 
+        user_info->token = token;
         m_users[uid] = user_info;
     }
     else

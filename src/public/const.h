@@ -30,7 +30,7 @@ namespace http = beast::http;     // from <boost/beast/http.hpp>
 namespace net = boost::asio;      // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
 
-enum class ErrorCode
+enum ErrorCode
 {
     SUCCESS              = 0,    // 成功
     ERROR_JSON           = 1001, // Json解析错误
@@ -44,6 +44,7 @@ enum class ErrorCode
     PASSWORD_INVALID     = 1009, // 密码无效
     REGISTER_USER_FAILED = 1010, // 用户注册失败
     USER_UID_INVALID     = 1011, // 非法用户id
+    USER_TOKEN_INVALID   = 1012, // 用户token非法
 };
 
 
@@ -74,7 +75,7 @@ template<>
 struct fmt::formatter<grpc::StatusCode> : fmt::formatter<int>
 {
     // 复用 int 的 formatter，直接把枚举当整数格式化
-    auto format(grpc::StatusCode s, format_context &ctx) const
+    auto format(grpc::StatusCode s, format_context& ctx) const
     {
         return fmt::formatter<int>::format(static_cast<int>(s), ctx);
     }

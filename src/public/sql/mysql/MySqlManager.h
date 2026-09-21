@@ -15,7 +15,7 @@ public:
     [[nodiscard]] bool checkIsAccountMatchEmail(int account, const std::string &email) const;
     [[nodiscard]] bool updatePassword(int account, const std::string &password) const;
     [[nodiscard]] bool chechIsPasswordMatchAccount(int account, const std::string &password) const;
-    [[nodiscard]] std::shared_ptr<UserInfo> getUser(size_t uid); // TODO 查表获取用户数据
+    [[nodiscard]] std::shared_ptr<UserInfo> getUser(size_t uid) const;
 private:
     MySqlManager();
     MySqlDao m_mySqlDao;

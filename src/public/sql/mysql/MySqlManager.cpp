@@ -20,4 +20,9 @@ bool MySqlManager::chechIsPasswordMatchAccount(const int account, const std::str
     return m_mySqlDao.chechIsPasswordMAtchAccount(password, account);
 }
 
-MySqlManager::MySqlManager() {}
+std::shared_ptr<UserInfo> MySqlManager::getUser(const size_t uid) const
+{
+    return m_mySqlDao.getUser(uid);
+}
+
+MySqlManager::MySqlManager() = default;
