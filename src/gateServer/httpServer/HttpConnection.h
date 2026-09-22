@@ -32,6 +32,8 @@ private:
     net::steady_timer m_deadline{m_socket.get_executor(), std::chrono::seconds(60)};
     std::string m_getUrl;
     std::unordered_map<std::string, std::string> m_getParams;
+    /// 是否由本地主动关闭（超时回收），用于把"预期中止"与真正的读错误区分开
+    bool m_beClosed = false;
 };
 
 

@@ -8,6 +8,9 @@
 #include <spdlog/spdlog.h>
 
 #include "httpServer/RedisManager.h"
+#include <sql/mysql/MySqlManager.h>
+#include "statusClient/StatusGrpcClient.h"
+#include "verifyClient/VerifyGrpcClient.h"
 
 int main()
 {
@@ -29,6 +32,17 @@ int main()
             }
             ioc.stop();
         });
+
+        // 预热一次性依赖：MySQL 连接池在构造时同步建立多条 SSL 连接（冷启动可达数秒），
+        // Redis 池与 gRPC 通道同理。若不预热，这些开销会落在首个请求的处理路径上，
+        // 既拉长首请求耗时，也让它逼近连接超时窗口
+        spdlog::info("Gate Server warming up dependencies...");
+        ConfigManager::GetInstance(); // 配置已在上文读取，此处保证初始化顺序清晰
+        MySqlManager::GetInstance();
+        RedisManager::GetInstance();
+        StatusGrpcClient::GetInstance();
+        VerifyGrpcClient::GetInstance();
+        spdlog::info("Gate Server dependencies ready");
 
         std::make_shared<CServer>(ioc, port)->start();
         spdlog::info("Gate Server start and listen on port: {}", port);

@@ -20,7 +20,15 @@ void HttpConnection::start()
         {
             if (ec)
             {
-                spdlog::error("[HttpConnection] http read err: {}", ec.what());
+                // 本端因超时主动关闭时，挂起的读会以 operation_aborted 结束，属预期行为，降级为 debug
+                if (self->m_beClosed)
+                {
+                    spdlog::debug("[HttpConnection] read aborted by local close: {}", ec.what());
+                }
+                else
+                {
+                    spdlog::error("[HttpConnection] http read err: {}", ec.what());
+                }
                 return;
             }
             boost::ignore_unused(bytes_transferred);
@@ -41,12 +49,20 @@ tcp::socket &HttpConnection::getSocket()
 void HttpConnection::checkDeadLine()
 {
     auto self = shared_from_this();
-    m_deadline.async_wait([self](beast::error_code ec)
+    // 计时起点必须在"真正开始服务"时才确定：连接对象是在上一次 accept 完成时就被预先创建的
+    // （见 CServer::start），若沿用构造时刻作为到期时刻，服务端静默超过 60 秒后新连进来的
+    // 客户端会立刻被判超时并关闭 socket，导致首个请求被丢弃（客户端表现为连接被重置/无响应）
+    m_deadline.expires_after(std::chrono::seconds(60));
+    m_deadline.async_wait([self](const beast::error_code &ec)
     {
         if (!ec)
         {
-            [[maybe_unused]] auto error =
-                    self->m_socket.close(ec);
+            // 明确记录超时关闭，避免与真正的读写错误混淆
+            spdlog::warn("[HttpConnection] connection timeout, close socket");
+            self->m_beClosed = true;
+            boost::system::error_code ignore;
+            self->m_socket.shutdown(tcp::socket::shutdown_both, ignore);
+            self->m_socket.close(ignore);
         }
     });
 }
@@ -57,14 +73,23 @@ void HttpConnection::writeResponse()
     m_response.content_length(m_response.body().size());
     http::async_write(m_socket, m_response, [self](beast::error_code ec, std::size_t bytes_transferred)
     {
-        [[maybe_unused]] auto error =
-                self->m_socket.shutdown(tcp::socket::shutdown_send, ec);
+        // 写失败必须记录：此前忽略该错误会让服务端日志显示"业务成功"，
+        // 而客户端实际收不到响应（正是"两次都显示登录成功但第一次无效"的原因）
+        if (ec)
+        {
+            spdlog::warn("[HttpConnection] response write failed: {}", ec.what());
+        }
+        boost::system::error_code ignore;
+        self->m_socket.shutdown(tcp::socket::shutdown_send, ignore);
         self->m_deadline.cancel();
     });
 }
 
 void HttpConnection::handleReq()
 {
+    // 请求已完整到达：重新计时，使"读取阶段"与"处理 + 回写阶段"各有独立的超时窗口，
+    // 避免同步处理（数据库/RPC）耗时较长时被读取阶段的剩余时间误杀
+    checkDeadLine();
     // 设置版本
     m_response.version(m_request.version());
     m_response.keep_alive(false);
@@ -149,7 +174,7 @@ void HttpConnection::preParseGetParam()
     // 处理最后一个参数对（如果没有 & 分隔符）
     if (!query_string.empty())
     {
-        size_t eq_pos = query_string.find('=');
+        const size_t eq_pos = query_string.find('=');
         if (eq_pos != std::string::npos)
         {
             key = url_codec::UrlDecode(query_string.substr(0, eq_pos));

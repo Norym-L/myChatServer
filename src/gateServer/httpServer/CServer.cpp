@@ -16,24 +16,34 @@ void CServer::start()
     const auto new_connection = std::make_shared<HttpConnection>(io_context);
     m_acceptor.async_accept(new_connection->getSocket(), [self, new_connection](const beast::error_code &ec)
     {
+        if (ec)
+        {
+            // 本次 accept 失败：记录后继续监听
+            spdlog::warn("[CServer] CServer link error: {} , create a new link", ec.what());
+        }
+        else
+        {
+            try
+            {
+                // 启动链接
+                new_connection->start();
+            }
+            catch (std::exception &exp)
+            {
+                spdlog::error("[CServer] CServer new connection start error: {}", exp.what());
+            }
+        }
+
+        // 无论成功与否都重新挂起 accept。放在异常处理之外，保证：
+        //   1) 异常不会让监听循环中断；
+        //   2) 每个 accept 完成事件只重新挂起一次，不会重复 accept
         try
         {
-            // 出错放弃此链接，继续监听其他链接
-            if (ec)
-            {
-                spdlog::warn("[CServer] CServer link error: {} , create a new link", ec.what());
-                self->start();
-                return;
-            }
-
-            // 启动链接
-            new_connection->start();
-
             self->start();
         }
         catch (std::exception &exp)
         {
-            spdlog::error("[CServer] CServer error: {}", exp.what());
+            spdlog::error("[CServer] CServer re-accept error: {}", exp.what());
         }
     });
 }
