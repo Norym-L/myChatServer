@@ -5,7 +5,7 @@
 
 #include <ConfigManager.h>
 
-#include "Cserver.h"
+#include "CServer.h"
 #include "LogicSystem.h"
 #include "AsioIOServicePool.h"
 
@@ -31,7 +31,9 @@ int main()
                 io_context.stop();
                 pool.stop();
                 });
-            chat::CServer server(io_context, 0, config_name);
+            // 端口从配置读取：必须与 StatusServer 向客户端分发的端口一致
+            const auto port = static_cast<std::uint16_t>(std::stoi(config[config_name]["port"]));
+            chat::CServer server(io_context, port, config_name);
             io_context.run();
         }
         catch (std::exception& e)

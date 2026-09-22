@@ -1,5 +1,6 @@
 #include "VerifyGrpcClient.h"
 
+#include <chrono>
 #include <memory>
 #include <spdlog/spdlog.h>
 #include <ConfigManager.h>
@@ -7,11 +8,20 @@
 GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string &email) const
 {
     ClientContext context;
+    // 必须设置超时：对端假死（连接建立但不响应）时，同步 RPC 会永久阻塞调用线程
+    context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(3));
     GetVerifyRsp reply;
     GetVerifyReq request;
     request.set_email(email);
 
     auto stub = m_pool->getConnection();
+    // 池关闭时会返回空连接，必须判空后再调用 stub
+    if (stub == nullptr)
+    {
+        spdlog::error("[VerifyGrpcClient] GetVerifyCode Error: no available connection");
+        reply.set_error(static_cast<int32_t>(ErrorCode::RPC_FAILED));
+        return reply;
+    }
     const Status status = stub->GetVerifyCode(&context, request, &reply);
     if (status.ok())
     {

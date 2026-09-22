@@ -7,30 +7,17 @@
 #include <ConfigManager.h>
 
 RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, const int port, const std::string &password)
-    : m_poolSize(pool_size), m_host(std::move(host)), m_port(port), m_beStop(false)
+    : m_poolSize(pool_size), m_host(std::move(host)), m_port(port), m_password(password), m_beStop(false)
 {
     for (size_t i = 0; i < m_poolSize; ++i)
     {
-        auto *context = redisConnect(m_host.c_str(), m_port);
-        if (context == nullptr || context->err != 0)
+        // 连接与 AUTH 逻辑抽到 createConnection()，供坏连接重建复用；密码保存为成员供重建时使用
+        auto *context = createConnection();
+        if (context == nullptr)
         {
-            if (context != nullptr)
-            {
-                redisFree(context);
-            }
             continue;
         }
 
-        const auto reply = static_cast<redisReply *>(redisCommand(context, "AUTH %s", password.c_str()));
-        if (reply == nullptr || reply->type == REDIS_REPLY_ERROR)
-        {
-            spdlog::error("[RedisManager] redis password not true");
-            freeReplyObject(reply);
-            redisFree(context);
-            continue;
-        }
-
-        freeReplyObject(reply);
         spdlog::debug("[RedisManager] redis password true");
         m_connections.push(context);
     }
@@ -45,10 +32,47 @@ RedisConnectPool::~RedisConnectPool()
     }
 }
 
+redisContext *RedisConnectPool::createConnection()
+{
+    // 建连逻辑（connect + AUTH），构造函数与坏连接重建共用
+    auto *context = redisConnect(m_host.c_str(), m_port);
+    if (context == nullptr || context->err != 0)
+    {
+        if (context != nullptr)
+        {
+            redisFree(context);
+        }
+        return nullptr;
+    }
+
+    const auto reply = static_cast<redisReply *>(redisCommand(context, "AUTH %s", m_password.c_str()));
+    if (reply == nullptr || reply->type == REDIS_REPLY_ERROR)
+    {
+        spdlog::error("[RedisManager] redis password not true");
+        freeReplyObject(reply);
+        redisFree(context);
+        return nullptr;
+    }
+
+    freeReplyObject(reply);
+    return context;
+}
+
+void RedisConnectPool::recycleBadConnection(redisContext *context)
+{
+    // 坏连接不回池：销毁后尝试重建新连接补充池（重建失败则池容量减少一个）
+    redisFree(context);
+    if (auto *new_context = createConnection(); new_context != nullptr)
+    {
+        returnConnection(new_context);
+    }
+}
+
 redisContext *RedisConnectPool::getConnection()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
-    m_condition.wait(lock, [this]()
+    // 限时等待：池为空（如 Redis 不可达导致初始连接全部失败）时不允许永久阻塞调用线程，超时返回空由调用方判空
+    if (!m_condition.wait_for(lock, std::chrono::seconds(2), [this]()
     {
         if (m_beStop)
         {
@@ -56,7 +80,10 @@ redisContext *RedisConnectPool::getConnection()
         }
 
         return !m_connections.empty();
-    });
+    }))
+    {
+        return nullptr;
+    }
     if (m_beStop)
     {
         return nullptr;
@@ -116,8 +143,13 @@ bool RedisManager::get(const std::string &key, std::string &value) const
         if (reply != nullptr)
         {
             freeReplyObject(reply);
+            m_connectPool->returnConnection(connect);
         }
-        m_connectPool->returnConnection(connect);
+        else
+        {
+            // reply 为空说明连接已断开：坏连接不回池并尝试重建
+            m_connectPool->recycleBadConnection(connect);
+        }
         return false;
     }
 
@@ -140,7 +172,8 @@ bool RedisManager::set(const std::string &key, const std::string &value) const
     if (reply == nullptr)
     {
         spdlog::debug("[RedisManager] redis Failed to execute command [ SET {} {} ]", key, value);
-        m_connectPool->returnConnection(connect);
+        // reply 为空说明连接已断开：坏连接不回池并尝试重建
+        m_connectPool->recycleBadConnection(connect);
         return false;
     }
 
@@ -201,8 +234,13 @@ bool RedisManager::lPop(const std::string &key, std::string &value) const
         if (reply != nullptr)
         {
             freeReplyObject(reply);
+            m_connectPool->returnConnection(connect);
         }
-        m_connectPool->returnConnection(connect);
+        else
+        {
+            // reply 为空说明连接已断开：坏连接不回池并尝试重建
+            m_connectPool->recycleBadConnection(connect);
+        }
         return false;
     }
     value = reply->str;
@@ -223,15 +261,15 @@ bool RedisManager::rPush(const std::string &key, const std::string &value) const
     if (reply == nullptr)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ RPUSH {} {} ]", key, value);
-        m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
+        // reply 为空说明连接已断开：坏连接不回池并尝试重建
+        m_connectPool->recycleBadConnection(connect);
         return false;
     }
     if (reply->type != REDIS_REPLY_INTEGER || reply->integer <= 0)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ RPUSH {} {} ]", key, value);
-        m_connectPool->returnConnection(connect);
         freeReplyObject(reply);
+        m_connectPool->returnConnection(connect);
         return false;
     }
 
@@ -343,8 +381,16 @@ std::string RedisManager::hGet(const std::string &key, const std::string &h_key)
     if (reply == nullptr || reply->type == REDIS_REPLY_NIL)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ HGET {} {} ]", key, h_key);
-        m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+            m_connectPool->returnConnection(connect);
+        }
+        else
+        {
+            // reply 为空说明连接已断开：坏连接不回池并尝试重建
+            m_connectPool->recycleBadConnection(connect);
+        }
         return "";
     }
 
@@ -367,8 +413,16 @@ bool RedisManager::del(const std::string &key) const
     if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ DEL {} ]", key);
-        m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+            m_connectPool->returnConnection(connect);
+        }
+        else
+        {
+            // reply 为空说明连接已断开：坏连接不回池并尝试重建
+            m_connectPool->recycleBadConnection(connect);
+        }
         return false;
     }
 

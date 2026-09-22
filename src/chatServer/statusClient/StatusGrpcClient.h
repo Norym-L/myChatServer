@@ -1,6 +1,7 @@
 #ifndef GATESERVER_STATUSGRPCCLIENT_H
 #define GATESERVER_STATUSGRPCCLIENT_H
 
+#include <chrono>
 #include <condition_variable>
 #include <message.grpc.pb.h>
 #include <queue>
@@ -20,7 +21,7 @@ using message::GetChatServerReq;
 using message::GetChatServerRsp;
 using message::StatusService;
 
-namespace detil
+namespace detail
 {
 class StatusConnectPool
 {
@@ -48,14 +49,18 @@ public:
     std::unique_ptr<StatusService::Stub> getConnection()
     {
         std::unique_lock<std::mutex> lock(m_mutex);
-        m_condition.wait(lock, [this]()
-                             {
-                             if (m_beStop)
-                             {
-                                 return true;
-                             }
-                             return !m_connections.empty();
-                             });
+        // 限时等待（与 MySQL/Redis 池策略一致）：池为空时不允许永久阻塞调用线程，超时返回空由调用方判空
+        if (!m_condition.wait_for(lock, std::chrono::seconds(2), [this]()
+            {
+                if (m_beStop)
+                {
+                    return true;
+                }
+                return !m_connections.empty();
+            }))
+        {
+            return nullptr;
+        }
         if (m_beStop)
         {
             return nullptr;
@@ -105,7 +110,7 @@ public:
 private:
     StatusGrpcClient();
 
-    std::unique_ptr<detil::StatusConnectPool> m_pool;
+    std::unique_ptr<detail::StatusConnectPool> m_pool;
 };
 }
 #endif //GATESERVER_STATUSGRPCCLIENT_H

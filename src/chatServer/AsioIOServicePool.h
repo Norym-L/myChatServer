@@ -2,8 +2,10 @@
 #define GATESERVER_ASIOIOSERVICEPOOL_H
 
 #include <vector>
+#include <atomic>
 #include <boost/asio.hpp>
 #include <memory>
+#include <mutex>
 
 #include <../public/Singleton.h>
 
@@ -32,7 +34,8 @@ private:
     std::vector<IOService> m_ioServices;
     std::vector<WorkPtr> m_works;
     std::vector<std::thread> m_threads;
-    std::size_t m_nextIOService;
+    std::atomic<std::size_t> m_nextIOService; // 两个 ChatServer 线程会并发调用 getIOServer()，索引自增需原子
+    std::once_flag m_stopFlag;                // 保证 stop() 幂等，避免多个信号回调重复 join 导致 terminate
 };
 }
 #endif //GATESERVER_ASIOIOSERVICEPOOL_H

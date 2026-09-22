@@ -2,11 +2,18 @@
 #ifndef GATESERVER_MYSQLDAO_H
 #define GATESERVER_MYSQLDAO_H
 
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <queue>
+#include <string>
+#include <string_view>
 
 #include <const.h>
 #include <boost/mysql/tcp_ssl.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/ssl/context.hpp>
 
 namespace mysql = boost::mysql;
 namespace asio = boost::asio;
@@ -47,6 +54,7 @@ public:
 
 private:
     std::unique_ptr<asio::io_context> m_io_context = nullptr;
+    std::unique_ptr<asio::ssl::context> m_ssl_ctx = nullptr; // 需长于池内连接的生命周期：连接按引用持有 SSL 上下文
     std::string m_host;
     int m_port;
     std::string m_user;
@@ -74,9 +82,11 @@ public:
      */
     int registerUser(const std::string &email, const std::string &name, const std::string &password) const;
 
-    bool checkIsAccountMatchEmail(const std::string &email, int account) const;
+    /// 校验 uid 与 email 是否匹配；依赖不可用时返回 MatchResult::Unavailable
+    MatchResult checkIsAccountMatchEmail(const std::string &email, int account) const;
     bool updatePassword(int account, const std::string &password) const;
-    bool chechIsPasswordMAtchAccount(const std::string &password, int account) const;
+    /// 校验密码与账号是否匹配；依赖不可用时返回 MatchResult::Unavailable
+    MatchResult checkIsPasswordMatchAccount(const std::string &password, int account) const;
     std::shared_ptr<UserInfo> getUser(size_t uid) const;
 
 private:

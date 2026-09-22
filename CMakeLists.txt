@@ -96,6 +96,9 @@ target_compile_definitions(ChatServer PRIVATE
         $<$<CONFIG:Debug>:CHAT_DEBUG>
 )
 
+# add_test 需要先启用测试支持，否则 ctest 无法发现测试
+enable_testing()
+
 add_subdirectory(tests)
 
 target_include_directories(GateServer PRIVATE

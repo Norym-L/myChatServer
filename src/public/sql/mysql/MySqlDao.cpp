@@ -1,5 +1,6 @@
 #include "MySqlDao.h"
 #include <boost/mysql.hpp>
+#include <chrono>
 #include <spdlog/spdlog.h>
 
 #include <ConfigManager.h>
@@ -21,8 +22,8 @@ SqlConnectionPool::SqlConnectionPool(
 {
     m_io_context = std::make_unique<asio::io_context>();
 
-    // 创建 SSL context
-    auto ssl_ctx = std::make_unique<asio::ssl::context>(asio::ssl::context::tls_client);
+    // 创建 SSL context；连接对象按引用持有它，因此必须由连接池成员持有以保证生命周期长于池内连接
+    m_ssl_ctx = std::make_unique<asio::ssl::context>(asio::ssl::context::tls_client);
 
     // 解析主机名
     asio::ip::tcp::resolver resolver(m_io_context->get_executor());
@@ -40,7 +41,7 @@ SqlConnectionPool::SqlConnectionPool(
         try
         {
             // 创建连接对象
-            auto connection = std::make_unique<mysql::tcp_ssl_connection>(m_io_context->get_executor(), *ssl_ctx);
+            auto connection = std::make_unique<mysql::tcp_ssl_connection>(m_io_context->get_executor(), *m_ssl_ctx);
 
             // 连接到 MySQL 服务器
             connection->connect(*endpoints.begin(), params);
@@ -69,7 +70,11 @@ SqlConnectionPool::~SqlConnectionPool()
 std::unique_ptr<SqlConnection> SqlConnectionPool::getConnection()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
-    m_condition.wait(lock, [this] { return !m_pool.empty() || m_be_closed; });
+    // 限时等待：池为空（如初始连接全部失败）时不允许永久阻塞调用线程，超时返回空由调用方判空
+    if (!m_condition.wait_for(lock, std::chrono::seconds(2), [this] { return !m_pool.empty() || m_be_closed; }))
+    {
+        return nullptr;
+    }
     if (m_be_closed)
     {
         return nullptr;
@@ -156,12 +161,13 @@ int MySqlDao::registerUser(const std::string& email, const std::string& name, co
     return -1;
 }
 
-bool MySqlDao::checkIsAccountMatchEmail(const std::string& email, int account) const
+MatchResult MySqlDao::checkIsAccountMatchEmail(const std::string& email, int account) const
 {
     auto connection = m_pool->getConnection();
     if (!connection)
     {
-        return false;
+        // 连接池获取超时（数据库不可达），与"不匹配"区分开
+        return MatchResult::Unavailable;
     }
 
     try
@@ -173,24 +179,25 @@ bool MySqlDao::checkIsAccountMatchEmail(const std::string& email, int account) c
         if (result.rows().empty())
         {
             m_pool->returnConnection(std::move(connection));
-            return false;
+            return MatchResult::NotMatched;
         }
 
         m_pool->returnConnection(std::move(connection));
-        return true;
+        return MatchResult::Matched;
     }
     catch (mysql::error_with_diagnostics& e)
     {
         spdlog::error("[MySqlDao] MySQL error: {}", e.what());
         spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        m_pool->returnConnection(std::move(connection));
+        return MatchResult::Unavailable;
     }
     catch (const std::exception& e)
     {
         spdlog::error("[MySqlDao] Error: {}", e.what());
+        m_pool->returnConnection(std::move(connection));
+        return MatchResult::Unavailable;
     }
-
-    m_pool->returnConnection(std::move(connection));
-    return false;
 }
 
 bool MySqlDao::updatePassword(const int account, const std::string& password) const
@@ -208,6 +215,14 @@ bool MySqlDao::updatePassword(const int account, const std::string& password) co
         mysql::results result;
         connection->connection->execute(sql.bind(argon2id_password, account), result);
 
+        // uid 不存在时 UPDATE 命中 0 行，需按受影响行数判定失败
+        if (result.affected_rows() == 0)
+        {
+            spdlog::warn("[MySqlDao] update password affected 0 rows, uid: {}", account);
+            m_pool->returnConnection(std::move(connection));
+            return false;
+        }
+
         m_pool->returnConnection(std::move(connection));
         return true;
     }
@@ -225,12 +240,13 @@ bool MySqlDao::updatePassword(const int account, const std::string& password) co
     return false;
 }
 
-bool MySqlDao::chechIsPasswordMAtchAccount(const std::string& password, int account) const
+MatchResult MySqlDao::checkIsPasswordMatchAccount(const std::string& password, int account) const
 {
     auto connection = m_pool->getConnection();
     if (!connection)
     {
-        return false;
+        // 连接池获取超时（数据库不可达），与"密码不匹配"区分开
+        return MatchResult::Unavailable;
     }
 
     try
@@ -241,26 +257,29 @@ bool MySqlDao::chechIsPasswordMAtchAccount(const std::string& password, int acco
         if (result.rows().empty())
         {
             m_pool->returnConnection(std::move(connection));
-            return false;
+            return MatchResult::NotMatched;
         }
 
         auto argon2id_password = result.rows().at(0).at(0).as_string();
         m_pool->returnConnection(std::move(connection));
 
-        return PasswordVerify::verifyPassword(password, argon2id_password);
+        return PasswordVerify::verifyPassword(password, argon2id_password)
+                   ? MatchResult::Matched
+                   : MatchResult::NotMatched;
     }
     catch (mysql::error_with_diagnostics& e)
     {
         spdlog::error("[MySqlDao] MySQL error: {}", e.what());
         spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        m_pool->returnConnection(std::move(connection));
+        return MatchResult::Unavailable;
     }
     catch (const std::exception& e)
     {
         spdlog::error("[MySqlDao] Error: {}", e.what());
+        m_pool->returnConnection(std::move(connection));
+        return MatchResult::Unavailable;
     }
-
-    m_pool->returnConnection(std::move(connection));
-    return false;
 }
 
 std::shared_ptr<UserInfo> MySqlDao::getUser(const size_t uid) const
@@ -285,7 +304,7 @@ std::shared_ptr<UserInfo> MySqlDao::getUser(const size_t uid) const
         m_pool->returnConnection(std::move(connection));
 
         auto user_info = std::make_shared<UserInfo>(
-            nullptr,
+            std::string(), // token 置空字符串：用 nullptr 构造 std::string 属于未定义行为
             result.rows().at(0).at(0).as_string(),
             uid);
         return user_info;

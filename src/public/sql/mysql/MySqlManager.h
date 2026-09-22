@@ -12,9 +12,9 @@ class MySqlManager : public TSingLeton<MySqlManager>
 public:
     int registerUser(const std::string &email, const std::string &name, const std::string &password) const;
 
-    [[nodiscard]] bool checkIsAccountMatchEmail(int account, const std::string &email) const;
+    [[nodiscard]] MatchResult checkIsAccountMatchEmail(int account, const std::string &email) const;
     [[nodiscard]] bool updatePassword(int account, const std::string &password) const;
-    [[nodiscard]] bool chechIsPasswordMatchAccount(int account, const std::string &password) const;
+    [[nodiscard]] MatchResult checkIsPasswordMatchAccount(int account, const std::string &password) const;
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(size_t uid) const;
 private:
     MySqlManager();

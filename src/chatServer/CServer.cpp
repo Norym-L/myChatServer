@@ -17,7 +17,7 @@ CServer::CServer(boost::asio::io_context& io_context, const std::uint16_t port, 
 
 CServer::~CServer()
 {
-    spdlog::info("[{}] desturct listen on port: {}", getSelfServerName(), m_port);
+    spdlog::info("[{}] destroy listen on port: {}", getSelfServerName(), m_port);
 }
 
 void CServer::clearSession(const std::string& uuid)
@@ -30,9 +30,13 @@ void CServer::handleAccept(std::shared_ptr<CSession> new_session, const boost::s
 {
     if (!error_code)
     {
+        // 必须先登记再启动：读回调在另一个 IOCP 线程上失败时会调用 clearSession，
+        // 若此刻尚未登记，该会话将无法被清理，导致 m_sessions 残留死会话
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_sessions.insert(std::make_pair(new_session->getUuid(), new_session));
+        }
         new_session->start();
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_sessions.insert(std::make_pair(new_session->getUuid(), new_session));
     }
     else
     {

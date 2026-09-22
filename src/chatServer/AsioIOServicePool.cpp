@@ -32,25 +32,25 @@ AsioIOServicePool::~AsioIOServicePool()
 
 boost::asio::io_context& AsioIOServicePool::getIOServer()
 {
-    auto& service = m_ioServices[m_nextIOService];
-    ++m_nextIOService;
-    if (m_nextIOService == m_ioServices.size())
-    {
-        m_nextIOService = 0;
-    }
-    return service;
+    // 两个 ChatServer 线程会并发调用本方法：索引自增必须原子，否则轮询索引存在数据竞争
+    const std::size_t index = m_nextIOService.fetch_add(1, std::memory_order_relaxed) % m_ioServices.size();
+    return m_ioServices[index];
 }
 
 void AsioIOServicePool::stop()
 {
-    for (const auto& work: m_works)
-    {
-        work->reset();
-    }
+    // 可能被多个线程的信号回调调用：用 call_once 保证清理只执行一次，避免重复 join
+    std::call_once(m_stopFlag, [this]()
+        {
+        for (const auto& work: m_works)
+        {
+            work->reset();
+        }
 
-    for (auto& t: m_threads)
-    {
-        t.join();
-    }
+        for (auto& t: m_threads)
+        {
+            t.join();
+        }
+        });
 }
 }

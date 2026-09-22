@@ -1,18 +1,19 @@
 #include "RPCConnectPool.h"
 
+#include <chrono>
 #include <utility>
 
 
-RPCConnectPool::RPCConnectPool(const std::size_t pool_size, std::string host, std::string prot)
+RPCConnectPool::RPCConnectPool(const std::size_t pool_size, std::string host, std::string port)
     : m_beStop(false),
       m_poolSize(pool_size),
       m_host(std::move(host)),
-      m_prot(std::move(prot))
+      m_port(std::move(port))
 {
     for (std::size_t i = 0; i < m_poolSize; ++i)
     {
         const std::shared_ptr<Channel> channel = grpc::CreateChannel(
-            std::format("{}:{}", m_host, m_prot),
+            std::format("{}:{}", m_host, m_port),
             grpc::InsecureChannelCredentials());
         m_connections.push(VerifyService::NewStub(channel));
     }
@@ -37,15 +38,18 @@ void RPCConnectPool::close()
 std::unique_ptr<VerifyService::Stub> RPCConnectPool::getConnection()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
-    // 如果m_connections.empty()，会把线程挂起并释放锁，等待 notify_all，notify_one 来唤醒并继续加锁
-    m_condition.wait(lock, [this]()
-    {
-        if (m_beStop)
+    // 限时等待（与 MySQL/Redis 池策略一致）：池为空时不允许永久阻塞调用线程，超时返回空由调用方判空
+    if (!m_condition.wait_for(lock, std::chrono::seconds(2), [this]()
         {
-            return true;
-        }
-        return !m_connections.empty();
-    });
+            if (m_beStop)
+            {
+                return true;
+            }
+            return !m_connections.empty();
+        }))
+    {
+        return nullptr;
+    }
 
     if (m_beStop)
     {

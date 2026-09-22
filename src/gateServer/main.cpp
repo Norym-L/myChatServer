@@ -11,9 +11,11 @@
 
 int main()
 {
-    spdlog::default_logger()->set_level(static_cast<spdlog::level::level_enum>(std::stoi(ConfigManager::GetInstance()["LoggerLevel"]["default"])));
     try
     {
+        // 日志级别同样来自 config.ini，必须放在 try 内：配置缺失或键缺失会抛异常，
+        // 落在 try 外将直接 std::terminate 且没有任何诊断输出
+        spdlog::default_logger()->set_level(static_cast<spdlog::level::level_enum>(std::stoi(ConfigManager::GetInstance()["LoggerLevel"]["default"])));
         const auto gate_port_str = ConfigManager::GetInstance()["GateServer"]["port"];
         const auto port = static_cast<unsigned short>(std::stoi(gate_port_str));
         net::io_context ioc{1};

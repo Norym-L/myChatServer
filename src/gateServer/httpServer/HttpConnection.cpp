@@ -3,80 +3,7 @@
 #include "LogicSystem.h"
 #include <spdlog/spdlog.h>
 
-namespace
-{
-// 10 -> 16
-unsigned char ToHex(const unsigned char x)
-{
-    return x > 9 ? x + 55 : x + 48;
-}
-
-// 16 -> 10
-unsigned char FormHex(const unsigned char x)
-{
-    unsigned char y = '0';
-    if (x >= 'A' && x <= 'Z') y = x - 'A' + 10;
-    else if (x >= 'a' && x <= 'z') y = x - 'a' + 10;
-    else if (x >= '0' && x <= '9') y = x - '0';
-    else
-        assert(0);
-    // ReSharper disable once CppLocalVariableMightNotBeInitialized
-    return y;
-}
-
-std::string UrlEncode(const std::string &str)
-{
-    std::string str_temp;
-    const auto length = str.length();
-    for (auto i = 0; i < length; ++i)
-    {
-        if (isalnum(static_cast<unsigned char>(str[i])) || // 数字、字母、符号
-            str[i] == '-' ||
-            str[i] == '_' ||
-            str[i] == '.' ||
-            str[i] == '~')
-        {
-            str_temp += str[i];
-        }
-        else if (str[i] == ' ') // 空
-        {
-            str_temp += '+';
-        }
-        else // 特殊字符 加‘%’且高四位和第四位转16进制
-        {
-            str_temp += '%';
-            str_temp += static_cast<char>(ToHex(static_cast<unsigned char>(str[i]) >> 4));
-            str_temp += static_cast<char>(ToHex(static_cast<unsigned char>(str[i]) & 0x0F));
-        }
-    }
-    return str_temp;
-}
-
-std::string UrlDecode(const std::string &str)
-{
-    std::string str_temp;
-    const auto length = str.length();
-    for (auto i = 0; i < length; ++i)
-    {
-        if (str[i] == '+')
-        {
-            str_temp += ' ';
-        }
-        else if (str[i] == '%')
-        {
-            assert(i + 2 < length);
-            const auto high = FormHex(static_cast<unsigned char>(str[++i]));
-            const auto low = FormHex(static_cast<unsigned char>(str[++i]));
-            str_temp += std::to_string(high << 4 | low);
-        }
-        else
-        {
-            str_temp += str[i];
-        }
-    }
-    return str_temp;
-}
-}
+#include <utils/UrlCodec.h>
 
 HttpConnection::HttpConnection(boost::asio::io_context &ioc)
     : m_socket(ioc)
@@ -85,6 +12,8 @@ HttpConnection::HttpConnection(boost::asio::io_context &ioc)
 void HttpConnection::start()
 {
     auto self = shared_from_this();
+    // 超时定时器必须在读取请求前启动，否则慢连接可在请求阶段挂满整个超时周期
+    self->checkDeadLine();
     http::async_read(m_socket, m_buffer, m_request, [self](const beast::error_code &ec, std::size_t bytes_transferred)
     {
         try
@@ -96,7 +25,6 @@ void HttpConnection::start()
             }
             boost::ignore_unused(bytes_transferred);
             self->handleReq();
-            self->checkDeadLine();
         }
         catch (std::exception &exp)
         {
@@ -173,6 +101,20 @@ void HttpConnection::handleReq()
         m_response.set(http::field::server, "GateServer");
         writeResponse();
     }
+
+    // 非 GET/POST 方法不路由任何处理器，需显式回应 405，否则客户端只能等超时
+    if (m_request.method() != http::verb::get &&
+        m_request.method() != http::verb::post)
+    {
+        m_response.result(http::status::method_not_allowed);
+        // HEAD 响应不应携带实体主体
+        if (m_request.method() != http::verb::head)
+        {
+            m_response.set(http::field::content_type, "text/plain");
+            beast::ostream(m_response.body()) << "method not allowed\n";
+        }
+        writeResponse();
+    }
 }
 
 void HttpConnection::preParseGetParam()
@@ -198,8 +140,8 @@ void HttpConnection::preParseGetParam()
         size_t eq_pos = pair.find('=');
         if (eq_pos != std::string::npos)
         {
-            key = UrlDecode(pair.substr(0, eq_pos)); // 假设有 url_decode 函数来处理URL解码
-            value = UrlDecode(pair.substr(eq_pos + 1));
+            key = url_codec::UrlDecode(pair.substr(0, eq_pos)); // 查询参数需解码后再使用
+            value = url_codec::UrlDecode(pair.substr(eq_pos + 1));
             m_getParams[key] = value;
         }
         query_string.erase(0, pos + 1);
@@ -210,8 +152,8 @@ void HttpConnection::preParseGetParam()
         size_t eq_pos = query_string.find('=');
         if (eq_pos != std::string::npos)
         {
-            key = UrlDecode(query_string.substr(0, eq_pos));
-            value = UrlDecode(query_string.substr(eq_pos + 1));
+            key = url_codec::UrlDecode(query_string.substr(0, eq_pos));
+            value = url_codec::UrlDecode(query_string.substr(eq_pos + 1));
             m_getParams[key] = value;
         }
     }

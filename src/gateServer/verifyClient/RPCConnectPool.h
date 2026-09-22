@@ -23,7 +23,7 @@ using message::VerifyService;
 class RPCConnectPool
 {
 public:
-    RPCConnectPool(std::size_t pool_size, std::string host, std::string prot);
+    RPCConnectPool(std::size_t pool_size, std::string host, std::string port);
     ~RPCConnectPool();
 
     /// 通知资源需要回收
@@ -39,7 +39,7 @@ private:
     std::atomic<bool> m_beStop;
     std::size_t m_poolSize;
     std::string m_host;
-    std::string m_prot;
+    std::string m_port;
     std::queue<std::unique_ptr<VerifyService::Stub> > m_connections;
     std::condition_variable m_condition;
     std::mutex m_mutex; //TODO 改双锁，队列头尾各一把，提高并发性能

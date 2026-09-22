@@ -1,7 +1,12 @@
 #ifndef GATESERVER_REDISMANAGER_H
 #define GATESERVER_REDISMANAGER_H
 
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <queue>
+#include <string>
 #include <hiredis/hiredis.h>
 
 #include <const.h>
@@ -15,16 +20,22 @@ public:
 
     redisContext *getConnection();
     void returnConnection(redisContext *context);
+    /// 坏连接不回池：销毁后尝试重建新连接补充池（供 RedisManager 各命令方法在连接断开时调用）
+    void recycleBadConnection(redisContext *context);
     void close();
 
 private:
     std::size_t m_poolSize;
     std::string m_host;
     int m_port;
+    std::string m_password; // 保存密码，供坏连接重建时 AUTH 使用
     std::atomic<bool> m_beStop;
     std::queue<redisContext *> m_connections;
     std::mutex m_mutex;
     std::condition_variable m_condition;
+
+    /// 创建并 AUTH 一个新连接（连接/AUTH 失败返回 nullptr）
+    redisContext *createConnection();
 };
 
 class RedisManager : public TSingLeton<RedisManager>

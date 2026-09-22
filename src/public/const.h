@@ -45,6 +45,15 @@ enum ErrorCode
     REGISTER_USER_FAILED = 1010, // 用户注册失败
     USER_UID_INVALID     = 1011, // 非法用户id
     USER_TOKEN_INVALID   = 1012, // 用户token非法
+    SERVICE_UNAVAILABLE  = 1013, // 依赖服务不可用（数据库/Redis 连接池超时或不可达）
+};
+
+/// 账号/密码校验结果：区分"业务不匹配"与"依赖不可用"，避免两者共用同一错误码
+enum class MatchResult
+{
+    Matched,     // 匹配
+    NotMatched,  // 不匹配
+    Unavailable, // 依赖服务不可用（连接池获取超时、数据库异常等）
 };
 
 

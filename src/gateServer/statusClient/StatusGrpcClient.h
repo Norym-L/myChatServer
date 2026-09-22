@@ -2,6 +2,7 @@
 #define GATESERVER_STATUSGRPCCLIENT_H
 
 #include <message.grpc.pb.h>
+#include <chrono>
 #include <queue>
 #include <grpcpp/create_channel.h>
 
@@ -42,14 +43,18 @@ public:
     std::unique_ptr<StatusService::Stub> getConnection()
     {
         std::unique_lock<std::mutex> lock(m_mutex);
-        m_condition.wait(lock, [this]()
-        {
-            if (m_beStop)
+        // 限时等待（与 MySQL/Redis 池策略一致）：池为空时不允许永久阻塞调用线程
+        if (!m_condition.wait_for(lock, std::chrono::seconds(2), [this]()
             {
-                return true;
-            }
-            return !m_connections.empty();
-        });
+                if (m_beStop)
+                {
+                    return true;
+                }
+                return !m_connections.empty();
+            }))
+        {
+            return nullptr;
+        }
         if (m_beStop)
         {
             return nullptr;

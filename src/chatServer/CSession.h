@@ -50,8 +50,6 @@ private:
     std::shared_ptr<ReceiveNode> m_receiveMessageNode;
     std::mutex m_sendMutex;
     std::queue<std::shared_ptr<SendNode> > m_sendQueue;
-    bool m_beClose;
-    bool m_beHeadParse;
 };
 
 
@@ -97,7 +95,8 @@ private:
     explicit ReceiveNode(const size_t len, const short id)
         : m_messageId(id), m_totalLen(len)
     {
-        m_data = static_cast<char*>(::malloc(sizeof(char) * len));
+        // 多分配 1 字节以容纳结尾 '\0'（CSession.cpp 会写 m_data[m_totalLen]）
+        m_data = static_cast<char*>(::malloc(sizeof(char) * (len + 1)));
     }
 
     char* m_data;
@@ -119,14 +118,20 @@ public:
 
 private:
     explicit SendNode(const char* message, const size_t len, const short message_id)
-        : m_message_id(message_id), m_totalLen(len)
+        : m_totalLen(HEAD_TOTAL_LEN + len)
     {
-        m_data = static_cast<char*>(::malloc(sizeof(char) * len));
-        ::memcpy(m_data, message, len);
+        // 发送缓冲区 = 4 字节协议头（2 字节 message_id + 2 字节报文长度，均网络字节序）+ 消息体
+        m_data = static_cast<char*>(::malloc(sizeof(char) * (HEAD_TOTAL_LEN + len)));
+        const auto id_network = boost::asio::detail::socket_ops::host_to_network_short(
+            static_cast<unsigned short>(message_id));
+        const auto len_network = boost::asio::detail::socket_ops::host_to_network_short(
+            static_cast<unsigned short>(len));
+        ::memcpy(m_data, &id_network, HEAD_ID_LEN);
+        ::memcpy(m_data + HEAD_ID_LEN, &len_network, HEAD_DATA_LEN);
+        ::memcpy(m_data + HEAD_TOTAL_LEN, message, len);
     }
 
     char* m_data;
-    short m_message_id;
     size_t m_totalLen;
 };
 

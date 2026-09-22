@@ -37,12 +37,9 @@ void LogicSystem::postMessageToQueue(const std::shared_ptr<LogicNode>& logic_nod
         return;
     }
     m_messageQueue.push(logic_node);
-    // 发送通知信号
-    if (messageQueue_size > 0)
-    {
-        lock.unlock();
-        m_conditionVariable.notify_one();
-    }
+    lock.unlock();
+    // 必须无条件通知：仅在队列非空时通知会让空闲后的首条消息永久滞留（丢唤醒）
+    m_conditionVariable.notify_one();
 }
 
 void LogicSystem::dealMessage()
@@ -114,7 +111,11 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     reader.parse(message_data, root);
     auto uid = root["uid"].asUInt64();
     auto token = root["token"].asString();
-    spdlog::info("[logic system] user login, id: {}, token: {}", uid, token);
+#ifdef CHAT_DEBUG
+    spdlog::debug("[logic system] user login, id: {}, token: {}", uid, token);
+#else
+    spdlog::info("[logic system] user login, id: {}", uid);
+#endif
     // 从状态服务器获取token检查是否匹配
     auto rsp = StatusGrpcClient::GetInstance().login(uid, token);
     Json::Value return_value;

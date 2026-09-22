@@ -110,9 +110,15 @@ LogicSystem::LogicSystem()
                 Json::Value root;
                 Json::Value src_root;
 
-                if (!reader.parse(body_str, src_root))
+                if (!reader.parse(body_str, src_root) ||
+                    !src_root.isMember("email") ||
+                    !src_root.isMember("user") ||
+                    !src_root.isMember("password") ||
+                    !src_root.isMember("confirm") ||
+                    !src_root.isMember("verify_code"))
                 {
-                    spdlog::debug("[LogicSystem] /user_register Failed to parse Json from client!");
+                    // 必填字段缺失时返回 JSON 错误，避免对缺失字段静默取空值
+                    spdlog::debug("[LogicSystem] /user_register Failed to parse Json or missing required fields!");
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -170,7 +176,7 @@ LogicSystem::LogicSystem()
                 root["uid"] = uid;
                 root["email"] = email;
                 root["user"] = name;
-                root["password"] = password;
+                // 响应不回显明文密码
                 auto json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
                 return true;
@@ -188,9 +194,14 @@ LogicSystem::LogicSystem()
                 Json::Value src_root;
 
                 bool parse_success = reader.parse(body_str, src_root);
-                if (!parse_success)
+                // 必填字段缺失时返回 JSON 错误，避免对缺失字段静默取空值
+                if (!parse_success ||
+                    !src_root.isMember("user") ||
+                    !src_root.isMember("email") ||
+                    !src_root.isMember("password") ||
+                    !src_root.isMember("verify_code"))
                 {
-                    spdlog::debug("[LogicSystem] /reset_password Failed to parse JSON from client!");
+                    spdlog::debug("[LogicSystem] /reset_password Failed to parse JSON or missing required fields!");
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -221,8 +232,17 @@ LogicSystem::LogicSystem()
                     return true;
                 }
 
-                bool b_accountValid = MySqlManager::GetInstance().checkIsAccountMatchEmail(account, email);
-                if (!b_accountValid)
+                const auto accountValid = MySqlManager::GetInstance().checkIsAccountMatchEmail(account, email);
+                // 依赖不可用（数据库超时/异常）与账号邮箱不匹配是两类问题，需返回不同错误码
+                if (accountValid == MatchResult::Unavailable)
+                {
+                    spdlog::error("[LogicSystem] /reset_password account check unavailable, uid: {}", account);
+                    root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
+                    std::string jsonstr = root.toStyledString();
+                    beast::ostream(connection->m_response.body()) << jsonstr;
+                    return true;
+                }
+                if (accountValid == MatchResult::NotMatched)
                 {
                     spdlog::debug("[LogicSystem] /reset_password check account match email failed");
                     root["error"] = static_cast<int>(ErrorCode::EMAIL_NOT_MATCH);
@@ -245,8 +265,8 @@ LogicSystem::LogicSystem()
                 spdlog::info("[LogicSystem] /reset_password succeed to update password uid: {}", account);
                 root["error"] = 0;
                 root["email"] = email;
-                root["passwd"] = password;
-                root["varifycode"] = src_root["varifycode"].asString();
+                // 响应不回显明文密码；请求字段名为 verify_code
+                root["verify_code"] = src_root["verify_code"].asString();
                 std::string jsonstr = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << jsonstr;
                 return true;
@@ -264,9 +284,12 @@ LogicSystem::LogicSystem()
                 Json::Value src_root;
 
                 bool parse_success = reader.parse(body_str, src_root);
-                if (!parse_success)
+                // 必填字段缺失时返回 JSON 错误，避免对缺失字段静默取空值
+                if (!parse_success ||
+                    !src_root.isMember("user") ||
+                    !src_root.isMember("password"))
                 {
-                    spdlog::debug("[LogicSystem] /user_login Failed to parse JSON form client!");
+                    spdlog::debug("[LogicSystem] /user_login Failed to parse JSON or missing required fields!");
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -276,8 +299,17 @@ LogicSystem::LogicSystem()
                 auto account = src_root["user"].asInt();
                 auto password = src_root["password"].asString();
 
-                bool b_pass_match_success = MySqlManager::GetInstance().chechIsPasswordMatchAccount(account, password);
-                if (!b_pass_match_success)
+                const auto passwordMatch = MySqlManager::GetInstance().checkIsPasswordMatchAccount(account, password);
+                // 依赖不可用（数据库超时/异常）与密码错误是两类问题，需返回不同错误码
+                if (passwordMatch == MatchResult::Unavailable)
+                {
+                    spdlog::error("[LogicSystem] /user_login password check unavailable, uid: {}", account);
+                    root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
+                    std::string jsonstr = root.toStyledString();
+                    beast::ostream(connection->m_response.body()) << jsonstr;
+                    return true;
+                }
+                if (passwordMatch == MatchResult::NotMatched)
                 {
                     spdlog::debug("[LogicSystem] /user_login check password failed");
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_ERROR);

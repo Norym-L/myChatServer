@@ -86,5 +86,7 @@ Status StatusServerImpl::Login(grpc::ServerContext* context, const message::Logi
 
 void StatusServerImpl::insertToken(size_t uid, std::string token)
 {
-    m_tokens.emplace(uid, std::move(token));
+    // m_tokens 需加锁并发保护，且必须覆盖写：emplace 对已存在 uid 会静默失败，导致二次登录 token 校验必败
+    std::lock_guard<std::mutex> lock(m_tokenMutex);
+    m_tokens[uid] = std::move(token);
 }
