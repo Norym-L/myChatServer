@@ -54,7 +54,7 @@ Status StatusServerImpl::GetChatServer(grpc::ServerContext* context, const messa
     spdlog::info("[status server] return a chat server that name: {}, at {}:{}", server.name, server.host, server.port);
     response->set_host(server.host);
     response->set_port(server.port);
-    response->set_error(static_cast<uint16_t>(ErrorCode::SUCCESS));
+    response->set_error(ErrorCode::SUCCESS);
     auto token = generate_unique_string();
     response->set_token(token);
     insertToken(request->uid(), token);

@@ -38,6 +38,7 @@ public:
      * @param password 密码
      * @param database 数据库
      * @param pool_size 池大小
+     * TODO sql断线重连
      */
     SqlConnectionPool(const std::string_view host, int port, const std::string_view user, const std::string_view password, const std::string_view database, const int pool_size);
 

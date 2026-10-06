@@ -2,6 +2,7 @@
 #include "HttpConnection.h"
 #include "../verifyClient/VerifyGrpcClient.h"
 #include <memory>
+#include <utility>
 #include <spdlog/spdlog.h>
 
 #include "RedisManager.h"
@@ -12,33 +13,41 @@ LogicSystem::~LogicSystem() = default;
 
 bool LogicSystem::handleGet(std::string path, std::shared_ptr<HttpConnection> connection)
 {
-    if (!m_get_handlers.contains(path))
+//     if (!m_get_handlers.contains(path))
+//     {
+//         return false;
+//     }
+//
+//     m_get_handlers[path](std::move(connection));
+//     return true;
+    const auto it = m_get_handlers.find(path);
+    if (it == m_get_handlers.end())
     {
         return false;
     }
-
-    m_get_handlers[path](connection);
+    it->second(std::move(connection));
     return true;
 }
 
 bool LogicSystem::handlePost(std::string path, std::shared_ptr<HttpConnection> connection)
 {
-    if (!m_post_handlers.contains(path))
+    const auto it = m_post_handlers.find(path);
+    if (it == m_post_handlers.end())
     {
         return false;
     }
-    m_post_handlers[path](connection);
+    it->second(std::move(connection));
     return true;
 }
 
 void LogicSystem::regGet(std::string url, HttpHandler handler)
 {
-    m_get_handlers.insert(std::make_pair(url, handler));
+    m_get_handlers.insert(std::make_pair(std::move(url), std::move(handler)));
 }
 
 void LogicSystem::regPost(std::string url, HttpHandler handler)
 {
-    m_post_handlers.insert(std::make_pair(url, handler));
+    m_post_handlers.insert(std::make_pair(std::move(url), std::move(handler)));
 }
 
 LogicSystem::LogicSystem()

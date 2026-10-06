@@ -7,7 +7,7 @@
 
 #include "CServer.h"
 #include "LogicSystem.h"
-#include "AsioIOServicePool.h"
+#include <AsioIOServicePool.h>
 
 namespace
 {
@@ -23,7 +23,7 @@ int main()
         try
         {
             auto& config = ConfigManager::GetInstance();
-            auto& pool = chat::AsioIOServicePool::GetInstance();
+            auto& pool = AsioIOServicePool::GetInstance();
             boost::asio::io_context io_context;
             boost::asio::signal_set signal(io_context, SIGINT, SIGTERM);
             signal.async_wait([&io_context, &pool](auto, auto)
