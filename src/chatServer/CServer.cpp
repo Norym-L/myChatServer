@@ -6,8 +6,6 @@
 
 #include <AsioIOServicePool.h>
 
-namespace chat
-{
 CServer::CServer(boost::asio::io_context& io_context, const std::uint16_t port, std::string  server_name)
     : m_ioContext(io_context), m_port(port), m_acceptor(io_context, tcp::endpoint(tcp::v4(), port)), m_name(std::move(server_name))
 {
@@ -53,4 +51,4 @@ void CServer::startAccept()
     m_acceptor.async_accept(new_session->getSocket(),
                             std::bind(&CServer::handleAccept, this, new_session, std::placeholders::_1));
 }
-}
+

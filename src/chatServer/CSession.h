@@ -9,8 +9,6 @@
 
 #include <const.h>
 
-namespace chat
-{
 using boost::asio::ip::tcp;
 
 class CServer;
@@ -148,5 +146,4 @@ private:
     std::shared_ptr<CSession> m_session;
     std::shared_ptr<ReceiveNode> m_receviceNdoe;
 };
-}
 #endif //GATESERVER_CSESSION_H

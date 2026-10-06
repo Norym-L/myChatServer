@@ -9,8 +9,6 @@
 #include <Singleton.h>
 #include <const.h>
 
-namespace chat
-{
 class LogicNode;
 class CSession;
 
@@ -40,6 +38,6 @@ private:
     std::map<short, Function_CallBack> m_callbackFunctions;
     std::unordered_map<size_t, std::shared_ptr<UserInfo>> m_users;
 };
-}
+
 
 #endif //GATESERVER_LOGICSYSTEM_H

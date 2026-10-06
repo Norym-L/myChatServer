@@ -12,11 +12,14 @@
 #include "statusClient/StatusGrpcClient.h"
 #include "verifyClient/VerifyGrpcClient.h"
 
-int main()
+int main(int argc, char *argv[])
 {
     try
     {
-        // 日志级别同样来自 config.ini，必须放在 try 内：配置缺失或键缺失会抛异常，
+        // 必须在首次 GetInstance() 之前解析，单例构造时就会读配置文件
+        ConfigManager::initFromArgs(argc, argv);
+
+        // 日志级别同样来自配置文件，必须放在 try 内：配置缺失或键缺失会抛异常，
         // 落在 try 外将直接 std::terminate 且没有任何诊断输出
         spdlog::default_logger()->set_level(static_cast<spdlog::level::level_enum>(std::stoi(ConfigManager::GetInstance()["LoggerLevel"]["default"])));
         const auto gate_port_str = ConfigManager::GetInstance()["GateServer"]["port"];

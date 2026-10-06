@@ -1,6 +1,8 @@
 #include <csignal>
-#include <thread>
-#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 #include <spdlog/spdlog.h>
 
 #include <ConfigManager.h>
@@ -11,39 +13,70 @@
 
 namespace
 {
-bool b_stop = false;
-std::condition_variable condition_variable;
-std::mutex mutex_quit;
+/// 单实例部署：一个进程只运行一个 ChatServer 实例，跑哪一个由 --config 指向的配置文件决定。
+/// 约定该配置文件中恰好存在一个 [ChatServerN] 段，段名即本实例的身份
+std::string resolveSelfSection(ConfigManager &config)
+{
+    constexpr std::string_view prefix("ChatServer");
+
+    std::vector<std::string> matched;
+    for (const auto &name: config.sectionNames())
+    {
+        if (name.starts_with(prefix))
+        {
+            matched.emplace_back(name);
+        }
+    }
+
+    if (matched.size() != 1)
+    {
+        throw std::runtime_error("config file must contain exactly one [" + std::string(prefix) +
+                                 "N] section, but found " + std::to_string(matched.size()));
+    }
+
+    return matched.front();
+}
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-    auto runChatServer = [](const std::string& config_name)
-        {
-        try
-        {
-            auto& config = ConfigManager::GetInstance();
-            auto& pool = AsioIOServicePool::GetInstance();
-            boost::asio::io_context io_context;
-            boost::asio::signal_set signal(io_context, SIGINT, SIGTERM);
-            signal.async_wait([&io_context, &pool](auto, auto)
-                {
-                io_context.stop();
-                pool.stop();
-                });
-            // 端口从配置读取：必须与 StatusServer 向客户端分发的端口一致
-            const auto port = static_cast<std::uint16_t>(std::stoi(config[config_name]["port"]));
-            chat::CServer server(io_context, port, config_name);
-            io_context.run();
-        }
-        catch (std::exception& e)
-        {
-            spdlog::error("[{}] start error: {}",config_name, e.what());
-        }
-        };
+    try
+    {
+        // 必须在首次 GetInstance() 之前解析，单例构造时就会读配置文件
+        ConfigManager::initFromArgs(argc, argv);
+        auto &config = ConfigManager::GetInstance();
 
-    std::thread chat_server1(runChatServer, "ChatServer1");
-    std::thread chat_server2(runChatServer, "ChatServer2");
-    chat_server1.join();
-    chat_server2.join();
+        const auto self_section = resolveSelfSection(config);
+
+        const auto name = config[self_section]["name"];
+        const auto port_str = config[self_section]["port"];
+        if (name.empty() || port_str.empty())
+        {
+            throw std::runtime_error("config section [" + self_section +
+                                     "] is incomplete: port/name are required");
+        }
+
+        // 端口必须与 StatusServer 向客户端分发的地址一致，否则客户端拿到的端口连不上
+        const auto port = static_cast<std::uint16_t>(std::stoi(port_str));
+
+        auto &pool = AsioIOServicePool::GetInstance();
+        boost::asio::io_context io_context;
+        boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+        signals.async_wait([&io_context, &pool](auto, auto)
+        {
+            io_context.stop();
+            pool.stop();
+        });
+
+        spdlog::info("[{}] starting as {}, listen on port: {}", self_section, name, port);
+        CServer server(io_context, port, name);
+        io_context.run();
+    }
+    catch (const std::exception &e)
+    {
+        spdlog::error("Chat Server start error: {}", e.what());
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
 }

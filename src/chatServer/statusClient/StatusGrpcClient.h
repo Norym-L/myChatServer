@@ -11,8 +11,6 @@
 #include <const.h>
 #include <Singleton.h>
 
-namespace chat
-{
 using grpc::Channel;
 using grpc::Status;
 using grpc::ClientContext;
@@ -112,5 +110,4 @@ private:
 
     std::unique_ptr<detail::StatusConnectPool> m_pool;
 };
-}
 #endif //GATESERVER_STATUSGRPCCLIENT_H

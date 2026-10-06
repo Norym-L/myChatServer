@@ -9,8 +9,6 @@
 #include "CSession.h"
 #include "statusClient/StatusGrpcClient.h"
 
-namespace chat
-{
 LogicSystem::LogicSystem()
     : m_beStop(false)
 {
@@ -156,4 +154,4 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     return_value["token"] = rsp.token();
     return_value["name"] = user_info->name;
 }
-}
+

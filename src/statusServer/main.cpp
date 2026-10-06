@@ -22,7 +22,7 @@ static void RunServer()
         }
     }
 
-    std::string server_address(config["StatusServerForServer"]["host"] + ":" + config["StatusServerForServer"]["port"]);
+    std::string server_address(config["StatusServer"]["host"] + ":" + config["StatusServer"]["port"]);
     StatusServerImpl server_impl;
 
     grpc::ServerBuilder builder;
@@ -62,7 +62,10 @@ int main(int argc, char *argv[])
 {
     try
     {
-        // 日志级别来自 config.ini，必须在 try 内读取，否则配置缺失时会直接 terminate 且无日志
+        // 必须在首次 GetInstance() 之前解析，单例构造时就会读配置文件
+        ConfigManager::initFromArgs(argc, argv);
+
+        // 日志级别来自配置文件，必须在 try 内读取，否则配置缺失时会直接 terminate 且无日志
         spdlog::default_logger()->set_level(static_cast<spdlog::level::level_enum>(std::stoi(ConfigManager::GetInstance()["LoggerLevel"]["default"])));
         RunServer();
     }

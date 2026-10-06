@@ -4,8 +4,6 @@
 #include <memory>
 #include <ConfigManager.h>
 
-namespace chat
-{
 message::LoginRsp StatusGrpcClient::login(const size_t uid, const std::string& token) const
 {
     ClientContext context;
@@ -44,5 +42,4 @@ StatusGrpcClient::StatusGrpcClient()
         config["StatusServerForClient"]["host"],
         config["StatusServerForClient"]["port"]
         );
-}
 }

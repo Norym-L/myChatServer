@@ -7,8 +7,8 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 | 服务 | 角色 | 可执行文件 | 默认监听 | 配置节 |
 |------|------|-----------|---------|--------|
 | GateServer | HTTP 网关，对外提供验证码/注册/登录/重置密码 | `GateServer.exe` | `0.0.0.0:8080` | `[GateServer]` |
-| StatusServer | gRPC 状态服务：聊天服分配、token 签发与校验 | `StatusServer.exe` | `0.0.0.0:50052` | `[StatusServerForServer]` |
-| ChatServer | TCP 聊天服务（单进程内同时启动 chat1 / chat2 两个实例） | `ChatServer.exe` | `127.0.0.1:8090` / `127.0.0.1:8091` | `[ChatServer1]` `[ChatServer2]` |
+| StatusServer | gRPC 状态服务：聊天服分配、token 签发与校验 | `StatusServer.exe` | `0.0.0.0:50052` | `[StatusServer]` |
+| ChatServer | TCP 聊天服务（**单实例进程**，一个进程只跑一个 chat 实例） | `ChatServer.exe` | `127.0.0.1:8090` / `127.0.0.1:8091` | `[ChatServer1]` `[ChatServer2]` |
 | VerifyServer | gRPC 验证码服务（**不在本仓库内**，由 GateServer 调用） | —— | `127.0.0.1:50051` | `[VerifyServer]` |
 
 外部依赖：
@@ -18,7 +18,23 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 | MySQL | `127.0.0.1:3308`，库名 `chatserver` | 用户注册、密码校验、用户信息查询 |
 | Redis | `127.0.0.1:6380` | 存放邮箱验证码，key 前缀 `code_` |
 
-配置来源：可执行文件**当前工作目录**下的 `config.ini`（缺失或字段不全时进程会记录错误并以非 0 退出）。
+### 1.1 配置与启动
+
+配置按服务拆分在 `configs/` 下，构建时会被复制到可执行文件所在目录：
+
+| 配置文件 | 给谁用 | 启动命令 |
+|---------|-------|---------|
+| `gate.ini` | GateServer | `GateServer.exe --config=gate.ini` |
+| `status.ini` | StatusServer | `StatusServer.exe --config=status.ini` |
+| `chat1.ini` | ChatServer 实例 1（chat1） | `ChatServer.exe --config=chat1.ini` |
+| `chat2.ini` | ChatServer 实例 2（chat2） | `ChatServer.exe --config=chat2.ini` |
+
+约定：
+
+- `--config` 支持 `--config=<path>` 与 `--config <path>` 两种写法；**省略时回落为当前工作目录下的 `config.ini`**。
+- 路径为相对路径时按**进程当前工作目录**解析；配置文件不存在时进程记录错误并以非 0 退出。
+- `chat1.ini` / `chat2.ini` 中必须**恰好有一个** `[ChatServerN]` 段，进程据此确定自身身份；0 个或多于 1 个都会启动失败。
+- `status.ini` 里需要保留**全部** ChatServer 的 `host`/`port`/`name`，否则无法分发。
 
 ## 2. 文档索引
 

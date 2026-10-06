@@ -7,8 +7,7 @@
 
 #include "CSession.h"
 
-namespace chat
-{
+
 using boost::asio::ip::tcp;
 
 class CServer
@@ -31,6 +30,6 @@ private:
     std::mutex m_mutex;
     std::string m_name;
 };
-}
+
 
 #endif //GATESERVER_CSERVER_H

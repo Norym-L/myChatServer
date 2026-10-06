@@ -1,6 +1,9 @@
 #ifndef GATESERVER_CONFIGMANAGER_H
 #define GATESERVER_CONFIGMANAGER_H
 
+#include <string>
+#include <vector>
+
 #include "const.h"
 
 /// 底层键值对
@@ -34,8 +37,21 @@ public:
     ConfigManager &operator=(const ConfigManager &other) = delete;
     SectionInfo operator[](const std::string &section);
 
+    /// 已加载的 section 名列表，便于按前缀定位配置段（如 [ChatServerN]）
+    std::vector<std::string> sectionNames() const;
+
+    /// 从命令行解析配置文件路径，必须在首次 GetInstance() 之前调用，否则不生效
+    /// 支持 --config=<path> 与 --config <path> 两种写法
+    static void initFromArgs(int argc, char *argv[]);
+
+    /// 当前生效的配置文件路径（解析后为绝对路径）
+    static const std::string &configPath();
+
 private:
     ConfigManager();
+
+    /// 默认回落：进程当前工作目录下的 config.ini
+    inline static std::string s_configPath = "config.ini";
 
     std::map<std::string, SectionInfo> m_configMap;
 };

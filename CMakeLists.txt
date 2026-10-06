@@ -155,10 +155,22 @@ target_link_libraries(ChatServer PRIVATE
         spdlog::spdlog
         fmt::fmt
 )
-# 构建后自动复制 config.ini 到输出目录
-add_custom_command(TARGET GateServer POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/config.ini"
-        "$<TARGET_FILE_DIR:GateServer>/config.ini"
-        COMMENT "Copying config.ini to output directory"
+# 配置按服务拆分：构建后全部复制到输出目录，各进程用 --config 指定自己那份
+# （三个可执行文件默认输出到同一目录，因此不能像以前那样统一叫 config.ini）
+set(CONFIG_FILES
+        gate.ini
+        status.ini
+        chat1.ini
+        chat2.ini
 )
+
+foreach (TARGET_NAME GateServer StatusServer ChatServer)
+    foreach (CONFIG_FILE ${CONFIG_FILES})
+        add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/configs/${CONFIG_FILE}"
+                "$<TARGET_FILE_DIR:${TARGET_NAME}>/${CONFIG_FILE}"
+                COMMENT "Copying ${CONFIG_FILE} to output directory"
+        )
+    endforeach ()
+endforeach ()
