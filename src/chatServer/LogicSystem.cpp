@@ -6,7 +6,7 @@
 #include <Defer.h>
 #include <sql/mysql/MySqlManager.h>
 
-#include "CSession.h"
+#include "net/CSession.h"
 #include "statusClient/StatusGrpcClient.h"
 
 LogicSystem::LogicSystem()

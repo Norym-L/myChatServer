@@ -27,7 +27,7 @@ service StatusService
 
 message GetChatServerReq
 {
-  int32 uid = 1;
+  uint64 uid = 1;
 }
 
 message GetChatServerRsp
@@ -40,13 +40,101 @@ message GetChatServerRsp
 
 message LoginReq
 {
-  int32 uid = 1;
+  uint64 uid = 1;
   string token = 2;
 }
 
 message LoginRsp
 {
   int32 error = 1;
-  int32 uid = 2;
+  uint64 uid = 2;
   string token = 3;
+}
+
+service ChatService
+{
+  rpc NotifyAddFriend(AddFriendReq) returns (AddFriendRsp) {}
+  rpc ReplyAddFriend(ReplyFriendReq) returns (ReplyFriendRsp) {}
+  rpc SendChatMessage(SendChatMessageReq) returns (SendChatMessageRsp) {}
+  rpc NotifyAuthFriend(AuthFriendReq) returns (AuthFriendRsp) {}
+  rpc NotifyTextChatMessage(TextChatMessageReq) returns (TextChatMessageRsp) {}
+}
+
+// 添加好友
+message AddFriendReq
+{
+  uint64 formUid = 1;
+  uint64 toUid = 2;
+  string desc = 3;
+}
+// 回包
+message AddFriendRsp
+{
+  int32 error = 1;
+  uint64 fromUid = 2;
+  uint64 toUid = 3;
+}
+// 回复好友申请
+message ReplyFriendReq
+{
+  uint64 fromUid = 1;
+  uint64 toUid = 2;
+  bool agree = 3;
+}
+
+message ReplyFriendRsp
+{
+  int32 error = 1;
+  uint64 fromUid = 2;
+  uint64 toUid = 3;
+}
+
+// 聊天信息
+message SendChatMessageReq
+{
+  uint64 fromUid = 1;
+  uint64 toUid = 2;
+  string message = 3;
+}
+
+message SendChatMessageRsp
+{
+  int32 error = 1;
+  uint64 fromUid = 2;
+  uint64 toUid = 3;
+}
+
+// 同意好友申请
+message AuthFriendReq
+{
+  uint64 fromUid = 1;
+  uint64 toUid = 2;
+}
+
+message AuthFriendRsp
+{
+  int32 error = 1;
+  uint64 fromUid = 2;
+  uint64 toUid = 3;
+}
+
+message TextChatData
+{
+  string messageId = 1;
+  string messageContent = 2;
+}
+
+message TextChatMessageReq
+{
+  uint64 fromUid = 1;
+  uint64 toUid = 2;
+  repeated TextChatData textMessage = 3;
+}
+
+message TextChatMessageRsp
+{
+  int32 error = 1;
+  uint64 fromUid = 2;
+  uint64 toUid = 3;
+  repeated TextChatData textMessage = 4;
 }

@@ -5,7 +5,7 @@
 #include <mutex>
 #include <boost/asio.hpp>
 
-#include "CSession.h"
+#include "net/CSession.h"
 
 
 using boost::asio::ip::tcp;
