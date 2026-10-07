@@ -8,27 +8,8 @@
 #ifndef GATESERVER_CONST_H
 #define GATESERVER_CONST_H
 
-#include <boost/beast/http.hpp>
-#include <boost/beast.hpp>
-#include <boost/asio.hpp>
-#include <iostream>
-#include <functional>
-#include <map>
 #include <string>
-#include <unordered_map>
-#include <json/json.h>
-#include <json/value.h>
-#include <json/reader.h>
-#include <boost/filesystem.hpp>
-#include <boost/property_tree/ptree.hpp>
-#include <boost/property_tree/ini_parser.hpp>
-
-#include "Singleton.h"
-
-namespace beast = boost::beast;   // from <boost/beast.hpp>
-namespace http = beast::http;     // from <boost/beast/http.hpp>
-namespace net = boost::asio;      // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp; // from <boost/asio/ip/tcp.hpp>
+#include <cstddef>
 
 enum ErrorCode
 {
@@ -73,7 +54,7 @@ struct UserInfo
 {
     std::string token;
     std::string name;
-    size_t uid;
+    std::size_t uid;
 };
 
 
@@ -91,5 +72,10 @@ struct fmt::formatter<grpc::StatusCode> : fmt::formatter<int>
 };
 
 #define CODE_PREFIX "code_"
+#define USER_IP_PERFIX "uip_"
+#define USER_TOKEN_PERFIX "utoken_"
+#define IP_COUNT_PERFIX "ipcount_"
+#define USER_BASE_INFO "ubaseinfo_"
+#define LOGIN_COUNT "logincount_"
 
 #endif //GATESERVER_CONST_H

@@ -9,6 +9,10 @@
 #define GATESERVER_LOGICSYSTEM_H
 
 #include <const.h>
+#include <functional>
+#include <map>
+
+#include "Singleton.h"
 
 class HttpConnection;
 using HttpHandler = std::function<void(std::shared_ptr<HttpConnection>)>;

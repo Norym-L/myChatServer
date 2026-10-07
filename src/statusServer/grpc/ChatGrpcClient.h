@@ -1,0 +1,49 @@
+#ifndef GATESERVER_CHATGRPCCLIENT_H
+#define GATESERVER_CHATGRPCCLIENT_H
+
+#include <message.grpc.pb.h>
+#include <string>
+#include <json/value.h>
+
+#include "ConnectionPool.h"
+#include "const.h"
+#include "Singleton.h"
+
+using grpc::Channel;
+using grpc::Status;
+using grpc::ClientContext;
+
+using message::AddFriendReq;
+using message::AddFriendRsp;
+
+using message::AuthFriendReq;
+using message::AuthFriendRsp;
+
+using message::GetChatServerRsp;
+using message::LoginReq;
+using message::LoginRsp;
+using message::ChatService;
+
+using message::TextChatData;
+using message::TextChatMessageReq;
+using message::TextChatMessageRsp;
+
+class ChatGrpcClient final : public TSingLeton<ChatGrpcClient>
+{
+    friend class TSingLeton;
+
+public:
+    [[nodiscard]] AddFriendRsp addFriend(const std::string& server_ip, const AddFriendReq& req);
+    [[nodiscard]] AuthFriendRsp authFriend(const std::string& server_ip, const AuthFriendReq& req);
+    [[nodiscard]] TextChatMessageRsp sendTextChatMessage(const std::string& server_ip, const TextChatMessageReq& req, const Json::Value& return_value);
+    [[nodiscard]] std::shared_ptr<UserInfo> getBaseInfo(const std::string& base_key, std::uint64_t uid);
+
+private:
+    ChatGrpcClient();
+
+    using ChatPeerPool = std::unique_ptr<ConnectionPool<ChatService::Stub> >;
+    std::unordered_map<std::string, ChatPeerPool> m_pool;
+};
+
+
+#endif //GATESERVER_CHATGRPCCLIENT_H

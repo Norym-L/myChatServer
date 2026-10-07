@@ -7,7 +7,7 @@
 #include <hiredis/hiredis.h>
 #include <spdlog/spdlog.h>
 
-#include "httpServer/RedisManager.h"
+#include <RedisManager.h>
 #include <sql/mysql/MySqlManager.h>
 #include "statusClient/StatusGrpcClient.h"
 #include "verifyClient/VerifyGrpcClient.h"

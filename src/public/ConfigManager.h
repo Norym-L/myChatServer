@@ -3,8 +3,9 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
-#include "const.h"
+#include "Singleton.h"
 
 /// 底层键值对
 struct SectionInfo
@@ -38,7 +39,7 @@ public:
     SectionInfo operator[](const std::string &section);
 
     /// 已加载的 section 名列表，便于按前缀定位配置段（如 [ChatServerN]）
-    std::vector<std::string> sectionNames() const;
+    [[nodiscard]] std::vector<std::string> sectionNames() const;
 
     /// 从命令行解析配置文件路径，必须在首次 GetInstance() 之前调用，否则不生效
     /// 支持 --config=<path> 与 --config <path> 两种写法

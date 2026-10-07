@@ -8,7 +8,11 @@
 #ifndef GATESERVER_CSERVER_H
 #define GATESERVER_CSERVER_H
 
-#include <const.h>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio.hpp>
+
+namespace  net = boost::asio;
+using tcp = boost::asio::ip::tcp;
 
 class CServer : public std::enable_shared_from_this<CServer>
 {

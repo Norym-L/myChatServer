@@ -4,6 +4,10 @@
 #include <ConfigManager.h>
 #include <spdlog/spdlog.h>
 
+#include <boost/filesystem.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+
 namespace
 {
 constexpr std::string_view CONFIG_FLAG("--config");

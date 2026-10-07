@@ -2,16 +2,29 @@
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <string>
+#include <boost/asio.hpp>
 
-#include "StatusServerImpl.h"
+#include "grpc/StatusServerImpl.h"
 #include <ConfigManager.h>
 
 static void RunServer()
 {
     auto &config = ConfigManager::GetInstance();
+    const auto server_list = config["ChatServer"]["servers"];
+
+    std::vector<std::string> chat_servers{};
+    {
+        std::stringstream stringstream(server_list);
+        std::string chat_server;
+
+        while (std::getline(stringstream, chat_server, ','))
+        {
+            chat_servers.push_back(chat_server);
+        }
+    }
 
     // 配置完整性校验：聊天服务器配置缺失会让 StatusServer 向客户端分发空地址，启动即报错更易定位
-    for (const auto *section: {"ChatServer1", "ChatServer2"})
+    for (const auto& section: chat_servers)
     {
         if (config[section]["host"].empty() ||
             config[section]["port"].empty() ||
