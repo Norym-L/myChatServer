@@ -5,7 +5,7 @@
 #include <spdlog/spdlog.h>
 #include <ConfigManager.h>
 
-GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string &email) const
+GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string& email) const
 {
     ClientContext context;
     // 必须设置超时：对端假死（连接建立但不响应）时，同步 RPC 会永久阻塞调用线程
@@ -39,8 +39,18 @@ GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string &email) const
 
 VerifyGrpcClient::VerifyGrpcClient()
 {
-    auto &config = ConfigManager::GetInstance();
+    auto& config = ConfigManager::GetInstance();
     auto host = config["VerifyServer"]["host"];
     auto port = config["VerifyServer"]["port"];
-    m_pool = std::make_unique<RPCConnectPool>(5, host, port);
+    std::shared_ptr<Channel> channel = grpc::CreateChannel(
+        std::format("{}:{}", host, port),
+        grpc::InsecureChannelCredentials());
+
+    m_pool = std::make_unique<ConnectionPool<VerifyService::Stub> >(
+        [channel]()
+            {
+                return VerifyService::NewStub(channel);
+            },
+        2, 4, std::chrono::milliseconds(2000)
+        );
 }

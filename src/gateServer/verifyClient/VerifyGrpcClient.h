@@ -4,7 +4,7 @@
 #include <grpcpp/grpcpp.h>
 #include <message.grpc.pb.h>
 
-#include "RPCConnectPool.h"
+#include <ConnectionPool.h>
 #include <const.h>
 #include <Singleton.h>
 
@@ -26,7 +26,7 @@ public:
 private:
     VerifyGrpcClient();
 
-    std::unique_ptr<RPCConnectPool> m_pool;
+    std::unique_ptr<ConnectionPool<VerifyService::Stub>> m_pool;
 };
 
 
