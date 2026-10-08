@@ -6,12 +6,14 @@
 #include <Defer.h>
 #include <sql/mysql/MySqlManager.h>
 
+#include "RedisManager.h"
 #include "net/CSession.h"
 #include "statusClient/StatusGrpcClient.h"
 
 LogicSystem::LogicSystem()
     : m_beStop(false)
 {
+    RedisManager::GetInstance();
     registerCallBacks();
     m_workThread = std::thread(&LogicSystem::dealMessage, this);
 }
@@ -114,8 +116,6 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
 #else
     spdlog::info("[logic system] user login, id: {}", uid);
 #endif
-    // 从状态服务器获取token检查是否匹配
-    auto rsp = StatusGrpcClient::GetInstance().login(uid, token);
     Json::Value return_value;
     Defer defer([this, &return_value, session]()
         {
@@ -124,11 +124,30 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
         session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_LOGIN_RESP);
         });
 
-    return_value["error"] = rsp.error();
-    if (rsp.error() != static_cast<uint16_t>(ErrorCode::SUCCESS))
+    // auto rsp = StatusGrpcClient::GetInstance().login(uid, token);
+    // return_value["error"] = rsp.error();
+    // if (rsp.error() != static_cast<uint16_t>(ErrorCode::SUCCESS))
+    // {
+    //     return;
+    // }
+
+    // 从 redis 中获取用户token
+    std::string token_value{};
+    if (!RedisManager::GetInstance().get(USER_TOKEN_PERFIX + std::to_string(uid), token_value))
     {
+        return_value["error"] = ErrorCode::USER_UID_INVALID;
         return;
     }
+    else if (token_value != token)
+    {
+        return_value["error"] = ErrorCode::USER_TOKEN_INVALID;
+        return;
+    }
+    else
+    {
+        return_value["error"] = ErrorCode::SUCCESS;
+    }
+
     // 内存中查询用户
     auto find_iter = m_users.find(uid);
     std::shared_ptr<UserInfo> user_info = nullptr;
@@ -151,7 +170,7 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     }
 
     return_value["uid"] = uid;
-    return_value["token"] = rsp.token();
+    return_value["token"] = token_value;
     return_value["name"] = user_info->name;
 }
 

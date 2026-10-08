@@ -3,6 +3,14 @@ project(GateServer)
 
 set(CMAKE_CXX_STANDARD 20)
 
+set(PLATFORM_LIBS "")
+if (WIN32)
+    list(APPEND PLATFORM_LIBS ws2_32 mswsock libsodium)
+else()
+    find_library(SODIUM_LIBRARY NAMES sodium REQUIRED)
+    list(APPEND PLATFORM_LIBS ${SODIUM_LIBRARY})
+endif()
+
 find_package(Boost REQUIRED COMPONENTS filesystem charconv)
 find_package(jsoncpp REQUIRED)
 find_package(gRPC REQUIRED)
@@ -123,11 +131,9 @@ target_link_libraries(GateServer PRIVATE
         JsonCpp::JsonCpp
         gRPC::grpc++
         redis++::redis++_static
-        ws2_32
-        mswsock
-        libsodium
         spdlog::spdlog
         fmt::fmt
+        ${PLATFORM_LIBS}
 )
 target_link_libraries(StatusServer PRIVATE
         Boost::boost
@@ -136,11 +142,9 @@ target_link_libraries(StatusServer PRIVATE
         JsonCpp::JsonCpp
         gRPC::grpc++
         redis++::redis++_static
-        ws2_32
-        mswsock
-        libsodium
         spdlog::spdlog
         fmt::fmt
+        ${PLATFORM_LIBS}
 )
 target_link_libraries(ChatServer PRIVATE
         Boost::boost
@@ -149,11 +153,9 @@ target_link_libraries(ChatServer PRIVATE
         JsonCpp::JsonCpp
         gRPC::grpc++
         redis++::redis++_static
-        ws2_32
-        mswsock
-        libsodium
         spdlog::spdlog
         fmt::fmt
+        ${PLATFORM_LIBS}
 )
 # 配置按服务拆分：构建后全部复制到输出目录，各进程用 --config 指定自己那份
 # （三个可执行文件默认输出到同一目录，因此不能像以前那样统一叫 config.ini）
