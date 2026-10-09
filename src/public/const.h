@@ -50,14 +50,6 @@ enum MessageType : short
     MESSAGE_CHAT_LOGIN_RESP,
 };
 
-struct UserInfo
-{
-    std::string token;
-    std::string name;
-    std::size_t uid;
-};
-
-
 #include <fmt/format.h>
 #include <grpcpp/support/status.h>
 

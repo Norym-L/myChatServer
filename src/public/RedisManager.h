@@ -54,6 +54,7 @@ public:
     [[nodiscard]] bool rPop(const std::string &key, std::string &value) const;
     [[nodiscard]] bool hSet(const std::string &key, const std::string &h_key, const std::string &value) const;
     [[nodiscard]] bool hSet(const char *key, const char *h_key, const char *h_value, std::size_t h_value_len) const;
+    [[nodiscard]] bool hDel(const std::string& key, const std::string& field) const;
     [[nodiscard]] std::string hGet(const std::string &key, const std::string &h_key) const;
     [[nodiscard]] bool del(const std::string &key) const;
     [[nodiscard]] bool existsKey(const std::string &key) const;

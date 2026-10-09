@@ -23,8 +23,11 @@ public:
     ~CSession();
 
     void start();
-    [[nodiscard]] std::string getUuid();
+    [[nodiscard]] std::string getSessionId();
     [[nodiscard]] tcp::socket& getSocket();
+    // 绑定用户id
+    void setUserId(std::uint64_t uid);
+    [[nodiscard]] std::uint64_t getUserId() const;
     void asyncReadHead(std::uint8_t head_len = HEAD_TOTAL_LEN);
     void AsyncReadBody(size_t message_len);
 
@@ -43,11 +46,12 @@ private:
     char m_data[MAX_LENGTH];
     tcp::socket m_socket;
     CServer* m_server;
-    std::string m_uuid;
+    std::string m_sessionId;
     std::shared_ptr<MessageNode> m_receiveHeadNode;
     std::shared_ptr<ReceiveNode> m_receiveMessageNode;
     std::mutex m_sendMutex;
     std::queue<std::shared_ptr<SendNode> > m_sendQueue;
+    std::uint64_t m_userId{0};
 };
 
 

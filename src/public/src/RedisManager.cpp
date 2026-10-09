@@ -1,10 +1,13 @@
 #include <RedisManager.h>
 
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #include <spdlog/spdlog.h>
 
 #include <ConfigManager.h>
+
+#include "Defer.h"
 
 RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, const int port, const std::string &password)
     : m_poolSize(pool_size), m_host(std::move(host)), m_port(port), m_password(password), m_beStop(false)
@@ -115,11 +118,25 @@ void RedisConnectPool::close()
 RedisManager::RedisManager()
 {
     auto &config = ConfigManager::GetInstance();
+
+    // [Redis] 段缺失时 std::stoi("") 抛出的 invalid_argument 完全看不出缺的是哪个配置项；
+    // 而且构造函数抛异常会让 GetInstance() 每次调用都重试一次构造，
+    // 伴随 TSingLeton 基类析构日志（[Singleton] singleton destruct）反复刷屏。
+    // 这里先显式校验并把配置项名与当前配置文件路径写进错误信息。
+    const auto host = config["Redis"]["host"];
+    const auto port_str = config["Redis"]["port"];
+    const auto passwd = config["Redis"]["passwd"];
+    if (host.empty() || port_str.empty() || passwd.empty())
+    {
+        throw std::runtime_error("[RedisManager] config section [Redis] is incomplete, "
+                                 "host/port/passwd are required in " + ConfigManager::configPath());
+    }
+
     m_connectPool = std::make_unique < RedisConnectPool > (
                         5,
-                        config["Redis"]["host"],
-                        std::stoi(config["Redis"]["port"]),
-                        config["Redis"]["passwd"]
+                        host,
+                        std::stoi(port_str),
+                        passwd
                     );
 }
 
@@ -356,6 +373,35 @@ bool RedisManager::hSet(const char *key, const char *h_key, const char *h_value,
 
     spdlog::debug("[RedisManager] redis Succeed to Execut command [ HSET {} {} {} ]", key, h_key, h_value);
     m_connectPool->returnConnection(connect);
+    freeReplyObject(reply);
+    return true;
+}
+
+bool RedisManager::hDel(const std::string& key, const std::string& field) const
+{
+    const auto connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    Defer defer([&connect, this]()
+        {
+            m_connectPool->returnConnection(connect);
+        });
+
+    auto* reply = static_cast<redisReply*>(redisCommand(connect, "HDEL %s %s", key.c_str(), field.c_str()));
+    if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER || reply->integer <= 0)
+    {
+        spdlog::debug("[RedisManager] redis Failed to Execut command [ HDEL {} {} ]", key, field);
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+        }
+        return false;
+    }
+
+    spdlog::debug("[RedisManager] redis Succeed to execut command [ HDEL {} {} ]", key, field);
     freeReplyObject(reply);
     return true;
 }

@@ -1,4 +1,6 @@
 #include "StatusServerImpl.h"
+#include <charconv>
+#include <cstdint>
 #include <const.h>
 #include <string_view>
 #include <boost/uuid.hpp>
@@ -45,37 +47,37 @@ StatusServerImpl::StatusServerImpl()
 ChatServer StatusServerImpl::getChatServer()
 {
     std::lock_guard<std::mutex> lock(m_serverMutex);
-    ChatServer min_server{.connection_count = ~0ull};
+
+    const ChatServer *min_server = nullptr;
     for (auto& server: m_servers | std::views::values)
     {
-        if (server.name == min_server.name)
-        {
-            continue;
-        }
-
+        // 计数器缺失（全新 Redis、或该实例还没有用户登录过）视为 0：
+        // 之前把它当作 ~0ull 会导致新部署时全部实例都被判为不可用而直接抛错，
+        // /user_login 永远拿不到聊天服务器
         const auto count_str = RedisManager::GetInstance().hGet(LOGIN_COUNT, server.name);
-        if (count_str.empty())
+        std::uint64_t count = 0;
+        if (!count_str.empty())
         {
-            server.connection_count = ~0ull;
+            std::from_chars(count_str.data(), count_str.data() + count_str.size(), count);
         }
-        else
-        {
-            server.connection_count = std::stoull(count_str);
-        }
+        server.connection_count = count;
 
-        if (server.connection_count < min_server.connection_count)
+        if (min_server == nullptr || server.connection_count < min_server->connection_count)
         {
-            min_server = server;
+            min_server = &server;
         }
     }
 
-    if (min_server.connection_count == ~0ull)
+    if (min_server == nullptr)
     {
-        spdlog::error("no avaible chat server to return");
-        throw std::runtime_error("no avaible chat server to return");
+        spdlog::error("no available chat server to return");
+        throw std::runtime_error("no available chat server to return");
     }
-    m_servers[min_server.name].connection_count++;
-    return min_server;
+
+    // 先拷贝再自增：返回值语义与原来一致（返回分发前的连接数）
+    auto selected = *min_server;
+    ++m_servers[selected.name].connection_count;
+    return selected;
 }
 
 Status StatusServerImpl::GetChatServer(grpc::ServerContext* context, const message::GetChatServerReq* request, message::GetChatServerRsp* response)
@@ -118,5 +120,9 @@ Status StatusServerImpl::Login(grpc::ServerContext* context, const message::Logi
 
 void StatusServerImpl::InsertToken(const size_t uid, const std::string& token)
 {
-    (void)RedisManager::GetInstance().set(USER_TOKEN_PERFIX + std::to_string(uid), token);
+    // 写入失败不能静默：token 没进 Redis 时，ChatServer 侧校验会一律返回 USER_UID_INVALID
+    if (!RedisManager::GetInstance().set(USER_TOKEN_PERFIX + std::to_string(uid), token))
+    {
+        spdlog::error("[status server] failed to insert token into redis, uid: {}", uid);
+    }
 }

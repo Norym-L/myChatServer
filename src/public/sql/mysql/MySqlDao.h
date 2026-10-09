@@ -15,6 +15,8 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ssl/context.hpp>
 
+#include "data/UserInfo.h"
+
 namespace mysql = boost::mysql;
 namespace asio = boost::asio;
 
@@ -81,14 +83,14 @@ public:
      * @param password 密码
      * @return 0 成功
      */
-    int registerUser(const std::string &email, const std::string &name, const std::string &password) const;
+    [[nodiscard]] int registerUser(const std::string &email, const std::string &name, const std::string &password) const;
 
     /// 校验 uid 与 email 是否匹配；依赖不可用时返回 MatchResult::Unavailable
-    MatchResult checkIsAccountMatchEmail(const std::string &email, int account) const;
-    bool updatePassword(int account, const std::string &password) const;
+    [[nodiscard]] MatchResult checkIsAccountMatchEmail(const std::string &email, int account) const;
+    [[nodiscard]] bool updatePassword(int account, const std::string &password) const;
     /// 校验密码与账号是否匹配；依赖不可用时返回 MatchResult::Unavailable
-    MatchResult checkIsPasswordMatchAccount(const std::string &password, int account) const;
-    std::shared_ptr<UserInfo> getUser(size_t uid) const;
+    [[nodiscard]] MatchResult checkIsPasswordMatchAccount(const std::string &password, int account) const;
+    [[nodiscard]] std::shared_ptr<UserInfo> getUser(size_t uid) const;
 
 private:
     std::unique_ptr<SqlConnectionPool> m_pool;

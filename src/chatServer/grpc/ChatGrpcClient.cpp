@@ -47,7 +47,7 @@ ChatGrpcClient::ChatGrpcClient()
         }
 
         auto channel = grpc::CreateChannel(
-            config[chat_server]["host"] + ":" + config[chat_server]["port"],
+            config[chat_server]["host"] + ":" + config[chat_server]["grpcPort"],
             grpc::InsecureChannelCredentials());
 
         m_pool.emplace(

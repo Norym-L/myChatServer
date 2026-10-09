@@ -292,7 +292,7 @@ std::shared_ptr<UserInfo> MySqlDao::getUser(const size_t uid) const
 
     try
     {
-        const auto sql = connection->connection->prepare_statement("SELECT name FROM user WHERE uid = ? LIMIT 1"); // 获取用户名字
+        const auto sql = connection->connection->prepare_statement("SELECT `name`, `email`, `desc`, `icon`, `sex` FROM `user` WHERE `uid` = ? LIMIT 1"); // 获取用户信息
         mysql::results result;
         connection->connection->execute(sql.bind(uid), result);
         if (result.rows().empty())
@@ -303,10 +303,16 @@ std::shared_ptr<UserInfo> MySqlDao::getUser(const size_t uid) const
 
         m_pool->returnConnection(std::move(connection));
 
+        const auto row = result.rows().at(0);
         auto user_info = std::make_shared<UserInfo>(
             std::string(), // token 置空字符串：用 nullptr 构造 std::string 属于未定义行为
-            result.rows().at(0).at(0).as_string(),
-            uid);
+            row.at(0).as_string(),
+            row.at(1).as_string(),
+            row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()), // desc
+            row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()), // icon
+            uid,
+            static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64()) // sex
+            );
         return user_info;
     }
     catch (mysql::error_with_diagnostics& e)

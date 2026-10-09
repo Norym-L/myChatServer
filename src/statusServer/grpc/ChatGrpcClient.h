@@ -6,8 +6,8 @@
 #include <json/value.h>
 
 #include "ConnectionPool.h"
-#include "const.h"
 #include "Singleton.h"
+#include "data/UserInfo.h"
 
 using grpc::Channel;
 using grpc::Status;

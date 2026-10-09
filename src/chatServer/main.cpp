@@ -4,6 +4,7 @@
 #include <string_view>
 #include <vector>
 #include <spdlog/spdlog.h>
+#include <grpcpp/server_builder.h>
 
 #include <ConfigManager.h>
 
@@ -11,42 +12,23 @@
 #include "LogicSystem.h"
 #include <AsioIOServicePool.h>
 
-namespace
-{
-/// 单实例部署：一个进程只运行一个 ChatServer 实例，跑哪一个由 --config 指向的配置文件决定。
-/// 约定该配置文件中恰好存在一个 [ChatServerN] 段，段名即本实例的身份
-std::string resolveSelfSection(ConfigManager &config)
-{
-    constexpr std::string_view prefix("ChatServer");
+#include "RedisManager.h"
+#include "grpc/ChatServiceImpl.h"
+#include "sql/mysql/MySqlManager.h"
+#include "utils/config.h"
 
-    std::vector<std::string> matched;
-    for (const auto &name: config.sectionNames())
-    {
-        if (name.starts_with(prefix))
-        {
-            matched.emplace_back(name);
-        }
-    }
-
-    if (matched.size() != 1)
-    {
-        throw std::runtime_error("config file must contain exactly one [" + std::string(prefix) +
-                                 "N] section, but found " + std::to_string(matched.size()));
-    }
-
-    return matched.front();
-}
-}
-
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
     try
     {
         // 必须在首次 GetInstance() 之前解析，单例构造时就会读配置文件
         ConfigManager::initFromArgs(argc, argv);
-        auto &config = ConfigManager::GetInstance();
+        RedisManager::GetInstance();
+        MySqlManager::GetInstance();
 
-        const auto self_section = resolveSelfSection(config);
+        auto& config = ConfigManager::GetInstance();
+
+        const auto self_section = ResolveSelfSection(config);
 
         const auto name = config[self_section]["name"];
         const auto port_str = config[self_section]["port"];
@@ -59,20 +41,39 @@ int main(int argc, char *argv[])
         // 端口必须与 StatusServer 向客户端分发的地址一致，否则客户端拿到的端口连不上
         const auto port = static_cast<std::uint16_t>(std::stoi(port_str));
 
-        auto &pool = AsioIOServicePool::GetInstance();
+        auto& pool = AsioIOServicePool::GetInstance();
+
+        std::string server_addr = config[name]["host"] + ":" + config[name]["grpcPort"];
+        ChatServiceImpl grpc_serviec;
+        grpc::ServerBuilder builder;
+        builder.AddListeningPort(server_addr, grpc::InsecureServerCredentials());
+        builder.RegisterService(&grpc_serviec);
+        std::unique_ptr<grpc::Server> grpc_server(builder.BuildAndStart());
+        spdlog::info("[{}<grpc_server>] listen on: {}", self_section, server_addr);
+
+        std::thread grpc_server_thread([&grpc_server]()
+            {
+                grpc_server->Wait();
+            });
+
         boost::asio::io_context io_context;
         boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
-        signals.async_wait([&io_context, &pool](auto, auto)
-        {
-            io_context.stop();
-            pool.stop();
-        });
+        signals.async_wait([&io_context, &pool, &grpc_server](auto, auto)
+            {
+                io_context.stop();
+                pool.stop();
+                grpc_server->Shutdown();
+            });
 
         spdlog::info("[{}] starting as {}, listen on port: {}", self_section, name, port);
         CServer server(io_context, port, name);
         io_context.run();
+
+        (void)RedisManager::GetInstance().hDel(LOGIN_COUNT, name);
+        RedisManager::GetInstance().close();
+        grpc_server_thread.join();
     }
-    catch (const std::exception &e)
+    catch (const std::exception& e)
     {
         spdlog::error("Chat Server start error: {}", e.what());
         return EXIT_FAILURE;

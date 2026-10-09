@@ -6,7 +6,9 @@
 
 #include <AsioIOServicePool.h>
 
-CServer::CServer(boost::asio::io_context& io_context, const std::uint16_t port, std::string  server_name)
+#include "data/UserManager.h"
+
+CServer::CServer(boost::asio::io_context& io_context, const std::uint16_t port, std::string server_name)
     : m_ioContext(io_context), m_port(port), m_acceptor(io_context, tcp::endpoint(tcp::v4(), port)), m_name(std::move(server_name))
 {
     spdlog::info("[{}] start success, listen on port: {}", getSelfServerName(), m_port);
@@ -18,10 +20,25 @@ CServer::~CServer()
     spdlog::info("[{}] destroy listen on port: {}", getSelfServerName(), m_port);
 }
 
-void CServer::clearSession(const std::string& uuid)
+void CServer::clearSession(const std::string& session_id)
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_sessions.erase(uuid);
+    std::uint64_t user_id{0};
+    std::shared_ptr<CSession> session;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (const auto it = m_sessions.find(session_id); it != m_sessions.end())
+        {
+            user_id = it->second->getUserId();
+            session = std::move(it->second);   // 把析构推迟到锁外
+            m_sessions.erase(it);
+        }
+    }
+
+    session.reset();
+    if (user_id > 0)
+    {
+        UserManager::GetInstance().removeUserSession(user_id);
+    }
 }
 
 void CServer::handleAccept(std::shared_ptr<CSession> new_session, const boost::system::error_code& error_code)
@@ -32,7 +49,7 @@ void CServer::handleAccept(std::shared_ptr<CSession> new_session, const boost::s
         // 若此刻尚未登记，该会话将无法被清理，导致 m_sessions 残留死会话
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_sessions.insert(std::make_pair(new_session->getUuid(), new_session));
+            m_sessions.insert(std::make_pair(new_session->getSessionId(), new_session));
         }
         new_session->start();
     }
@@ -51,4 +68,3 @@ void CServer::startAccept()
     m_acceptor.async_accept(new_session->getSocket(),
                             std::bind(&CServer::handleAccept, this, new_session, std::placeholders::_1));
 }
-

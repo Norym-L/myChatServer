@@ -9,7 +9,7 @@ CSession::CSession(boost::asio::io_context& io_context, CServer* server)
     : m_data{}, m_socket(io_context), m_server(server)
 {
     const auto uuid = boost::uuids::random_generator()();
-    m_uuid = to_string(uuid);
+    m_sessionId = to_string(uuid);
     m_receiveHeadNode = std::shared_ptr<MessageNode>(new MessageNode(HEAD_TOTAL_LEN));
 }
 
@@ -24,14 +24,24 @@ void CSession::start()
     asyncReadHead(HEAD_TOTAL_LEN);
 }
 
-std::string CSession::getUuid()
+std::string CSession::getSessionId()
 {
-    return m_uuid;
+    return m_sessionId;
 }
 
 tcp::socket& CSession::getSocket()
 {
     return m_socket;
+}
+
+void CSession::setUserId(const std::uint64_t uid)
+{
+    m_userId = uid;
+}
+
+std::uint64_t CSession::getUserId() const
+{
+    return m_userId;
 }
 
 void CSession::asyncReadHead(std::uint8_t head_len)
@@ -48,9 +58,9 @@ void CSession::asyncReadHead(std::uint8_t head_len)
                     if (error_code == boost::asio::error::eof)
                     {
                         // 对端正常关闭连接，这是一个正常的结束信号
-                        spdlog::info("[tcp session] the remote host closed the connection. id: {}", m_uuid);
+                        spdlog::info("[tcp session] the remote host closed the connection. id: {}", m_sessionId);
                         close();
-                        m_server->clearSession(m_uuid);
+                        m_server->clearSession(m_sessionId);
                         return;
                         return;
                     }
@@ -58,14 +68,14 @@ void CSession::asyncReadHead(std::uint8_t head_len)
                     {
                         spdlog::warn("[tcp session] tcp head read error: {}", error_code.what());
                         close();
-                        m_server->clearSession(m_uuid);
+                        m_server->clearSession(m_sessionId);
                         return;
                     }
                     if (bytes_transferred < HEAD_TOTAL_LEN)
                     {
                         spdlog::error("[tcp session] tcp head_len not match {} != {} !!!", bytes_transferred, HEAD_TOTAL_LEN);
                         close();
-                        m_server->clearSession(m_uuid);
+                        m_server->clearSession(m_sessionId);
                         return;
                     }
 
@@ -80,7 +90,7 @@ void CSession::asyncReadHead(std::uint8_t head_len)
                     if (message_id > MAX_LENGTH)
                     {
                         spdlog::warn("[tcp session] receive a invalid message id: {}", message_id);
-                        m_server->clearSession(m_uuid);
+                        m_server->clearSession(m_sessionId);
                         return;
                     }
                     short message_len = 0;
@@ -90,7 +100,7 @@ void CSession::asyncReadHead(std::uint8_t head_len)
                     if (message_len > MAX_LENGTH)
                     {
                         spdlog::warn("[tcp session] receive a invalid message len: {}", message_len);
-                        m_server->clearSession(m_uuid);
+                        m_server->clearSession(m_sessionId);
                         return;
                     }
                     spdlog::info("[tcp session] receive message id: {}, len: {}", message_id, message_len);
@@ -118,14 +128,14 @@ void CSession::AsyncReadBody(size_t message_len)
                     {
                         spdlog::warn("[tcp session] tcp body read error: {}", error_code.what());
                         close();
-                        m_server->clearSession(m_uuid);
+                        m_server->clearSession(m_sessionId);
                         return;
                     }
                     if (bytes_transferred < message_len)
                     {
                         spdlog::error("[tcp session] tcp body_len not match {} != {} !!!", bytes_transferred, message_len);
                         close();
-                        m_server->clearSession(m_uuid);
+                        m_server->clearSession(m_sessionId);
                         return;
                     }
 
@@ -187,7 +197,7 @@ void CSession::send(const char* message, const size_t len, const short message_i
     if (sendQueue_size > MAX_SEND_QUEUE_LEN)
     {
         // 队列积压说明对端不再取数据（TCP 背压），继续静默丢包会让客户端一直等响应；直接关闭会话
-        spdlog::warn("[tcp session] session[{}] send queue fulled, size is: {}, close session", m_uuid, MAX_SEND_QUEUE_LEN);
+        spdlog::warn("[tcp session] session[{}] send queue fulled, size is: {}, close session", m_sessionId, MAX_SEND_QUEUE_LEN);
         boost::system::error_code ec;
         m_socket.close(ec);
         return;

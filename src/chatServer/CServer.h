@@ -15,7 +15,7 @@ class CServer
 public:
     CServer(boost::asio::io_context& io_context, std::uint16_t port, std::string server_name);
     ~CServer();
-    void clearSession(const std::string& uuid);
+    void clearSession(const std::string& session_id);
 
     std::string getSelfServerName() { return m_name; }
 

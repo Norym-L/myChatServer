@@ -4,6 +4,7 @@
 #include <message.grpc.pb.h>
 
 #include "const.h"
+#include "data/UserInfo.h"
 
 using grpc::Channel;
 using grpc::Status;

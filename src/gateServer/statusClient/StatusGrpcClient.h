@@ -4,6 +4,7 @@
 #include <message.grpc.pb.h>
 #include <chrono>
 #include <queue>
+#include <utility>
 #include <grpcpp/create_channel.h>
 
 #include <const.h>
@@ -20,8 +21,8 @@ using message::StatusService;
 class StatusConnectPool
 {
 public:
-    StatusConnectPool(const std::size_t size, const std::string &host, const std::string &port)
-        : m_poolSize(size), m_host(host), m_port(port)
+    StatusConnectPool(const std::size_t size, std::string host, std::string port)
+        : m_poolSize(size), m_host(std::move(host)), m_port(std::move(port))
     {
         for (std::size_t i = 0; i < m_poolSize; ++i)
         {
