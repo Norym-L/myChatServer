@@ -7,16 +7,16 @@
 
 enum Sex : unsigned char
 {
-    MALE = 1,
+    MALE,
     FEMALE,
     UNKNOWN
 };
 
 enum FriendApplyStatus : unsigned char // 是否接受
 {
-    WAITING = 1, // 等待处理
-    ACCEPTED,    // 已经接受
-    REFUSEED,    // 拒绝
+    WAITING,  // 等待处理
+    ACCEPTED, // 已经接受
+    REFUSEED, // 拒绝
 };
 
 struct UserInfo
