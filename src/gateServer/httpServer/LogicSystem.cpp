@@ -220,7 +220,7 @@ LogicSystem::LogicSystem()
                     return true;
                 }
 
-                auto account = src_root["user"].asInt();
+                auto account = src_root["user"].asUInt();
                 auto email = src_root["email"].asString();
                 auto password = src_root["password"].asString();
 
@@ -308,7 +308,7 @@ LogicSystem::LogicSystem()
                     return true;
                 }
 
-                auto account = src_root["user"].asInt();
+                auto account = std::stoull(src_root["user"].asString());
                 auto password = src_root["password"].asString();
 
                 const auto passwordMatch = MySqlManager::GetInstance().checkIsPasswordMatchAccount(account, password);

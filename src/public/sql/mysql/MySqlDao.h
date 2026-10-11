@@ -83,14 +83,15 @@ public:
      * @param password 密码
      * @return 0 成功
      */
-    [[nodiscard]] int registerUser(const std::string &email, const std::string &name, const std::string &password) const;
+    [[nodiscard]] int registerUser(const std::string& email, const std::string& name, const std::string& password) const;
 
     /// 校验 uid 与 email 是否匹配；依赖不可用时返回 MatchResult::Unavailable
-    [[nodiscard]] MatchResult checkIsAccountMatchEmail(const std::string &email, int account) const;
-    [[nodiscard]] bool updatePassword(int account, const std::string &password) const;
+    [[nodiscard]] MatchResult checkIsAccountMatchEmail(const std::string& email, int account) const;
+    [[nodiscard]] bool updatePassword(int account, const std::string& password) const;
     /// 校验密码与账号是否匹配；依赖不可用时返回 MatchResult::Unavailable
-    [[nodiscard]] MatchResult checkIsPasswordMatchAccount(const std::string &password, int account) const;
+    [[nodiscard]] MatchResult checkIsPasswordMatchAccount(const std::string& password, int account) const;
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(size_t uid) const;
+    [[nodiscard]] std::vector<std::shared_ptr<UserInfo> > getUser(const std::string& name) const;
 
 private:
     std::unique_ptr<SqlConnectionPool> m_pool;

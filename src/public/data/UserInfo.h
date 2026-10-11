@@ -7,21 +7,21 @@
 
 enum Sex : unsigned char
 {
-    MALE = 0,
+    MALE = 1,
     FEMALE,
     UNKNOWN
 };
 
 enum FriendApplyStatus : unsigned char // 是否接受
 {
-    WAITING = 0, // 等待处理
+    WAITING = 1, // 等待处理
     ACCEPTED,    // 已经接受
     REFUSEED,    // 拒绝
 };
 
 struct UserInfo
 {
-    UserInfo(std::string  token, std::string  name, std::string  email, std::string  desc, std::string  icon, const std::uint64_t uid, const Sex sex)
+    UserInfo(std::string token, std::string name, std::string email, std::string desc, std::string icon, const std::uint64_t uid, const Sex sex)
         : token(std::move(token)), name(std::move(name)), email(std::move(email)), desc(std::move(desc)), icon(std::move(icon)), uid(uid), sex(sex)
     {}
 
@@ -36,7 +36,7 @@ struct UserInfo
 
 struct ApplyInfo
 {
-    ApplyInfo(std::string  name, std::string  desc, std::string  nick, const std::uint64_t uid, const FriendApplyStatus status)
+    ApplyInfo(std::string name, std::string desc, std::string nick, const std::uint64_t uid, const FriendApplyStatus status)
         : name(std::move(name)),
           desc(std::move(desc)),
           nick(std::move(nick)),

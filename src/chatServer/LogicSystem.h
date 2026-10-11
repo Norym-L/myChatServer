@@ -14,7 +14,7 @@
 class LogicNode;
 class CSession;
 
-using Function_CallBack = std::function<void(std::shared_ptr<CSession>, const short& message_id, const std::string& data)>;
+using Function_CallBack = std::function<void(std::shared_ptr<CSession>, const std::string& data)>;
 
 class LogicSystem : public TSingLeton<LogicSystem>
 {
@@ -31,9 +31,14 @@ private:
     void dealMessage();
 
     void registerCallBacks();
-    void loginHandler(const std::shared_ptr<CSession>&, short message_id, const std::string& message_data) const;
+    void loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    void searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 获取好友列表，好友申请列表
-    void getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, short message_id, const std::string& message_data);
+    void getUserApplyListAndFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data);
+
+
+    [[nodiscard]] static std::shared_ptr<UserInfo> SearchUserByUid(uint64_t uid) ;
+    [[nodiscard]] static std::vector<std::shared_ptr<UserInfo>> SearchUserByName(const std::string& name);
 
     std::mutex m_mutex;
     std::queue<std::shared_ptr<LogicNode> > m_messageQueue;

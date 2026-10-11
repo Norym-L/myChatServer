@@ -328,3 +328,55 @@ std::shared_ptr<UserInfo> MySqlDao::getUser(const size_t uid) const
     m_pool->returnConnection(std::move(connection));
     return nullptr;
 }
+
+std::vector<std::shared_ptr<UserInfo> > MySqlDao::getUser(const std::string& name) const
+{
+    auto connection = m_pool->getConnection();
+    if (!connection)
+    {
+        return {};
+    }
+
+    try
+    {
+        const auto sql = connection->connection->prepare_statement("SELECT `uid`, `email`, `desc`, `icon`, `sex` FROM `user` WHERE `name` = ? "); // 获取用户信息
+        mysql::results result;
+        connection->connection->execute(sql.bind(name), result);
+        if (result.rows().empty())
+        {
+            m_pool->returnConnection(std::move(connection));
+            return {};
+        }
+
+        m_pool->returnConnection(std::move(connection));
+        std::vector<std::shared_ptr<UserInfo> > user_infos;
+        // const auto row = result.rows().at(0);
+        for (const auto& row: result.rows())
+        {
+            auto user_info = std::make_shared<UserInfo>(
+            std::string(), // token 置空字符串：用 nullptr 构造 std::string 属于未定义行为
+            name,
+            row.at(1).as_string(),
+            row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()),
+            row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()),
+            row.at(0).as_uint64(),
+            static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64())
+            );
+            user_infos.push_back(user_info);
+        }
+
+        return user_infos;
+    }
+    catch (mysql::error_with_diagnostics& e)
+    {
+        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
+        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::error("[MySqlDao] Error: {}", e.what());
+    }
+
+    m_pool->returnConnection(std::move(connection));
+    return {};
+}

@@ -19,7 +19,8 @@
 | `1010` | `REGISTER_USER_FAILED` | 用户注册失败 | `/user_register` |
 | `1011` | `USER_UID_INVALID` | 非法/不存在的用户 id | StatusServer `Login`、TCP 登录响应 |
 | `1012` | `USER_TOKEN_INVALID` | token 非法或已失效 | StatusServer `Login`、TCP 登录响应 |
-| `1013` | `SERVICE_UNAVAILABLE` | **依赖服务不可用**（数据库/Redis 连接池超时或不可达） | `/user_login`、`/reset_password`（本次新增） |
+| `1013` | `SERVICE_UNAVAILABLE` | **依赖服务不可用**（数据库/Redis 连接池超时或不可达） | `/user_login`、`/reset_password` |
+| `1014` | `USER_NOT_FOUND` | 客户端查询的用户不存在 | `chatserver LogicSystem::searchUserHandler` |
 
 ## 2. 本次变更
 

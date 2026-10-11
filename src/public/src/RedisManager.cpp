@@ -6,16 +6,17 @@
 #include <spdlog/spdlog.h>
 
 #include <ConfigManager.h>
+#include <json/reader.h>
 
 #include "Defer.h"
 
-RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, const int port, const std::string &password)
+RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, const int port, const std::string& password)
     : m_poolSize(pool_size), m_host(std::move(host)), m_port(port), m_password(password), m_beStop(false)
 {
     for (size_t i = 0; i < m_poolSize; ++i)
     {
         // 连接与 AUTH 逻辑抽到 createConnection()，供坏连接重建复用；密码保存为成员供重建时使用
-        auto *context = createConnection();
+        auto* context = createConnection();
         if (context == nullptr)
         {
             continue;
@@ -35,10 +36,10 @@ RedisConnectPool::~RedisConnectPool()
     }
 }
 
-redisContext *RedisConnectPool::createConnection()
+redisContext* RedisConnectPool::createConnection() const
 {
     // 建连逻辑（connect + AUTH），构造函数与坏连接重建共用
-    auto *context = redisConnect(m_host.c_str(), m_port);
+    auto* context = redisConnect(m_host.c_str(), m_port);
     if (context == nullptr || context->err != 0)
     {
         if (context != nullptr)
@@ -48,7 +49,7 @@ redisContext *RedisConnectPool::createConnection()
         return nullptr;
     }
 
-    const auto reply = static_cast<redisReply *>(redisCommand(context, "AUTH %s", m_password.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(context, "AUTH %s", m_password.c_str()));
     if (reply == nullptr || reply->type == REDIS_REPLY_ERROR)
     {
         spdlog::error("[RedisManager] redis password not true");
@@ -61,29 +62,29 @@ redisContext *RedisConnectPool::createConnection()
     return context;
 }
 
-void RedisConnectPool::recycleBadConnection(redisContext *context)
+void RedisConnectPool::recycleBadConnection(redisContext* context)
 {
     // 坏连接不回池：销毁后尝试重建新连接补充池（重建失败则池容量减少一个）
     redisFree(context);
-    if (auto *new_context = createConnection(); new_context != nullptr)
+    if (auto* new_context = createConnection(); new_context != nullptr)
     {
         returnConnection(new_context);
     }
 }
 
-redisContext *RedisConnectPool::getConnection()
+redisContext* RedisConnectPool::getConnection()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
     // 限时等待：池为空（如 Redis 不可达导致初始连接全部失败）时不允许永久阻塞调用线程，超时返回空由调用方判空
     if (!m_condition.wait_for(lock, std::chrono::seconds(2), [this]()
-    {
-        if (m_beStop)
-        {
-            return true;
-        }
+                                  {
+                                      if (m_beStop)
+                                      {
+                                          return true;
+                                      }
 
-        return !m_connections.empty();
-    }))
+                                      return !m_connections.empty();
+                                  }))
     {
         return nullptr;
     }
@@ -91,12 +92,12 @@ redisContext *RedisConnectPool::getConnection()
     {
         return nullptr;
     }
-    auto *connect = m_connections.front();
+    auto* connect = m_connections.front();
     m_connections.pop();
     return connect;
 }
 
-void RedisConnectPool::returnConnection(redisContext *context)
+void RedisConnectPool::returnConnection(redisContext* context)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_beStop)
@@ -117,7 +118,7 @@ void RedisConnectPool::close()
 
 RedisManager::RedisManager()
 {
-    auto &config = ConfigManager::GetInstance();
+    auto& config = ConfigManager::GetInstance();
 
     // [Redis] 段缺失时 std::stoi("") 抛出的 invalid_argument 完全看不出缺的是哪个配置项；
     // 而且构造函数抛异常会让 GetInstance() 每次调用都重试一次构造，
@@ -145,7 +146,36 @@ RedisManager::~RedisManager()
     close();
 }
 
-bool RedisManager::get(const std::string &key, std::string &value) const
+void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info) const
+{
+    Json::Value redis_root;
+    redis_root["token"] = user_info->token.empty() ? "" : user_info->token;
+    redis_root["name"] = user_info->name;
+    redis_root["email"] = user_info->email;
+    redis_root["desc"] = user_info->desc;
+    redis_root["icon"] = user_info->icon;
+    redis_root["uid"] = user_info->uid;
+    redis_root["sex"] = user_info->sex;
+    if (!set(USER_BASE_INFO + std::to_string(user_info->uid), redis_root.toStyledString()))
+    {
+        spdlog::warn("[redis] redis insert user_info failed!");
+    }
+}
+
+void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_infos) const
+{
+    Json::Value redis_root;
+    for (const auto& user_info : user_infos)
+    {
+        redis_root["uids"].append(user_info->uid);
+    }
+    if (!set(USER_BASE_INFO_BY_NAME + user_infos.front()->name, redis_root.toStyledString()))
+    {
+        spdlog::warn("[redis] redis insert user_info failed!");
+    }
+}
+
+bool RedisManager::get(const std::string& key, std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
@@ -177,14 +207,14 @@ bool RedisManager::get(const std::string &key, std::string &value) const
     return true;
 }
 
-bool RedisManager::set(const std::string &key, const std::string &value) const
+bool RedisManager::set(const std::string& key, const std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "SET %s %s", key.c_str(), value.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "SET %s %s", key.c_str(), value.c_str()));
 
     if (reply == nullptr)
     {
@@ -208,14 +238,14 @@ bool RedisManager::set(const std::string &key, const std::string &value) const
     return true;
 }
 
-bool RedisManager::lPush(const std::string &key, const std::string &value) const
+bool RedisManager::lPush(const std::string& key, const std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "LPUSH %s %s", key.c_str(), value.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "LPUSH %s %s", key.c_str(), value.c_str()));
     if (reply == nullptr)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ LPUSH {} {} ]", key, value);
@@ -237,14 +267,14 @@ bool RedisManager::lPush(const std::string &key, const std::string &value) const
     return true;
 }
 
-bool RedisManager::lPop(const std::string &key, std::string &value) const
+bool RedisManager::lPop(const std::string& key, std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "LPOP %s", key.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "LPOP %s", key.c_str()));
     if (reply == nullptr || reply->type == REDIS_REPLY_NIL)
     {
         spdlog::debug("[RedisManager] redis Failed to execute command [ LPOP {} ]", key);
@@ -267,14 +297,14 @@ bool RedisManager::lPop(const std::string &key, std::string &value) const
     return true;
 }
 
-bool RedisManager::rPush(const std::string &key, const std::string &value) const
+bool RedisManager::rPush(const std::string& key, const std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "RPUSH %s %s", key.c_str(), value.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "RPUSH %s %s", key.c_str(), value.c_str()));
     if (reply == nullptr)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ RPUSH {} {} ]", key, value);
@@ -296,14 +326,14 @@ bool RedisManager::rPush(const std::string &key, const std::string &value) const
     return true;
 }
 
-bool RedisManager::rPop(const std::string &key, std::string &value) const
+bool RedisManager::rPop(const std::string& key, std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "RPOP %s", key.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "RPOP %s", key.c_str()));
     if (reply == nullptr || reply->type == REDIS_REPLY_NIL)
     {
         spdlog::debug("[RedisManager] redis Failed to execute command [ RPOP {} ]", key);
@@ -321,14 +351,14 @@ bool RedisManager::rPop(const std::string &key, std::string &value) const
     return true;
 }
 
-bool RedisManager::hSet(const std::string &key, const std::string &h_key, const std::string &value) const
+bool RedisManager::hSet(const std::string& key, const std::string& h_key, const std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "HSET %s %s %s", key.c_str(), h_key.c_str(), value.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "HSET %s %s %s", key.c_str(), h_key.c_str(), value.c_str()));
     if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ HSET {} {} {} ]", key, h_key, value);
@@ -343,7 +373,7 @@ bool RedisManager::hSet(const std::string &key, const std::string &h_key, const 
     return true;
 }
 
-bool RedisManager::hSet(const char *key, const char *h_key, const char *h_value, const std::size_t h_value_len) const
+bool RedisManager::hSet(const char* key, const char* h_key, const char* h_value, const std::size_t h_value_len) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
@@ -351,7 +381,7 @@ bool RedisManager::hSet(const char *key, const char *h_key, const char *h_value,
         return false;
     }
 
-    const char *argv[4];
+    const char* argv[4];
     std::size_t argv_len[4];
     argv[0] = "HSET";
     argv_len[0] = 4;
@@ -362,7 +392,7 @@ bool RedisManager::hSet(const char *key, const char *h_key, const char *h_value,
     argv[3] = h_value;
     argv_len[3] = h_value_len;
 
-    const auto reply = static_cast<redisReply *>(redisCommandArgv(connect, 4, argv, argv_len));
+    const auto reply = static_cast<redisReply*>(redisCommandArgv(connect, 4, argv, argv_len));
     if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ HSET {} {} {} ]", key, h_key, h_value);
@@ -406,7 +436,7 @@ bool RedisManager::hDel(const std::string& key, const std::string& field) const
     return true;
 }
 
-std::string RedisManager::hGet(const std::string &key, const std::string &h_key) const
+std::string RedisManager::hGet(const std::string& key, const std::string& h_key) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
@@ -414,7 +444,7 @@ std::string RedisManager::hGet(const std::string &key, const std::string &h_key)
         return "";
     }
 
-    const char *argv[3];
+    const char* argv[3];
     std::size_t argv_len[3];
     argv[0] = "HGET";
     argv_len[0] = 4;
@@ -423,7 +453,7 @@ std::string RedisManager::hGet(const std::string &key, const std::string &h_key)
     argv[2] = h_key.c_str();
     argv_len[2] = h_key.length();
 
-    const auto reply = static_cast<redisReply *>(redisCommandArgv(connect, 3, argv, argv_len));
+    const auto reply = static_cast<redisReply*>(redisCommandArgv(connect, 3, argv, argv_len));
     if (reply == nullptr || reply->type == REDIS_REPLY_NIL)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ HGET {} {} ]", key, h_key);
@@ -447,7 +477,7 @@ std::string RedisManager::hGet(const std::string &key, const std::string &h_key)
     return value;
 }
 
-bool RedisManager::del(const std::string &key) const
+bool RedisManager::del(const std::string& key) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
@@ -455,7 +485,7 @@ bool RedisManager::del(const std::string &key) const
         return false;
     }
 
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "DEL %s", key.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "DEL %s", key.c_str()));
     if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ DEL {} ]", key);
@@ -478,7 +508,7 @@ bool RedisManager::del(const std::string &key) const
     return true;
 }
 
-bool RedisManager::existsKey(const std::string &key) const
+bool RedisManager::existsKey(const std::string& key) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
@@ -486,7 +516,7 @@ bool RedisManager::existsKey(const std::string &key) const
         return false;
     }
 
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "exists %s", key.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "exists %s", key.c_str()));
     if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER || reply->integer == 0)
     {
         spdlog::debug("[RedisManager] redis Not Found [ KEY {} ]", key);

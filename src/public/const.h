@@ -8,8 +8,7 @@
 #ifndef GATESERVER_CONST_H
 #define GATESERVER_CONST_H
 
-#include <string>
-#include <cstddef>
+#include <cstdint>
 
 enum ErrorCode
 {
@@ -27,6 +26,7 @@ enum ErrorCode
     USER_UID_INVALID     = 1011, // 非法用户id
     USER_TOKEN_INVALID   = 1012, // 用户token非法
     SERVICE_UNAVAILABLE  = 1013, // 依赖服务不可用（数据库/Redis 连接池超时或不可达）
+    USER_NOT_FOUND       = 1014, // 查询的用户不存在
 };
 
 /// 账号/密码校验结果：区分"业务不匹配"与"依赖不可用"，避免两者共用同一错误码
@@ -44,10 +44,21 @@ enum class MatchResult
 #define HEAD_DATA_LEN   2 // tcp头部 message_len 长度
 #define MAX_SEND_QUEUE_LEN 4 // tcp发送队列最大长度
 
-enum MessageType : short
+enum MessageType : std::uint16_t
 {
-    MESSAGE_CHAT_LOGIN,
-    MESSAGE_CHAT_LOGIN_RESP,
+    MESSAGE_CHAT_LOGIN_REQ = 1001,    // 登录请求
+    MESSAGE_CHAT_LOGIN_RSP,           // 登录回包
+    MESSAGE_SEARCH_USER_REQ,          //用户搜索请求
+    MESSAGE_SEARCH_USER_RSP,          //搜索用户回包
+    MESSAGE_ADD_FRIEND_REQ,           //申请添加好友请求
+    MESSAGE_ADD_FRIEND_RSP,           //申请添加好友回复
+    MESSAGE_NOTIFY_ADD_FRIEND_REQ,    //通知用户添加好友申请
+    MESSAGE_AUTH_FRIEND_REQ,          //认证好友请求
+    MESSAGE_AUTH_FRIEND_RSP,          //认证好友回复
+    MESSAGE_NOTIFY_AUTH_FRIEND_REQ,   //通知用户认证好友申请
+    MESSAGE_TEXT_CHAT_MSG_REQ,        //文本聊天信息请求
+    MESSAGE_TEXT_CHAT_MSG_RSP,        //文本聊天信息回复
+    MESSAGE_NOTIFY_TEXT_CHAT_MSG_REQ, //通知用户文本聊天信息
 };
 
 #include <fmt/format.h>
@@ -68,6 +79,7 @@ struct fmt::formatter<grpc::StatusCode> : fmt::formatter<int>
 #define USER_TOKEN_PERFIX "utoken_"
 #define IP_COUNT_PERFIX "ipcount_"
 #define USER_BASE_INFO "ubaseinfo_"
+#define USER_BASE_INFO_BY_NAME "ubaseinfo_name_" // 需要处理多个值，连接用户uid数组
 #define LOGIN_COUNT "logincount_"
 
 #endif //GATESERVER_CONST_H

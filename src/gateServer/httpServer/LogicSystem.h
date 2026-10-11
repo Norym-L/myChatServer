@@ -8,7 +8,6 @@
 #ifndef GATESERVER_LOGICSYSTEM_H
 #define GATESERVER_LOGICSYSTEM_H
 
-#include <const.h>
 #include <functional>
 #include <map>
 

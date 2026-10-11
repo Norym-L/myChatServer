@@ -16,6 +16,7 @@ public:
     [[nodiscard]] bool updatePassword(int account, const std::string &password) const;
     [[nodiscard]] MatchResult checkIsPasswordMatchAccount(int account, const std::string &password) const;
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(size_t uid) const;
+    [[nodiscard]] std::vector<std::shared_ptr<UserInfo>> getUser(const std::string& name) const;
 private:
     MySqlManager();
     MySqlDao m_mySqlDao;

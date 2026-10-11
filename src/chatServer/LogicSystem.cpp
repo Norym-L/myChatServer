@@ -111,7 +111,6 @@ void LogicSystem::dealMessage()
                 }
                 call_back_function->second(
                     message_node->m_session,
-                    message_node->m_receviceNdoe->m_messageId,
                     std::string(message_node->m_receviceNdoe->m_data, message_node->m_receviceNdoe->m_currentLen));
                 m_messageQueue.pop();
                 spdlog::info("[logic system] dealMessage() handle message id: {}", message_node->m_receviceNdoe->m_messageId);
@@ -129,7 +128,6 @@ void LogicSystem::dealMessage()
         }
         call_back_function->second(
             message_node->m_session,
-            message_node->m_receviceNdoe->m_messageId,
             std::string(message_node->m_receviceNdoe->m_data, message_node->m_receviceNdoe->m_currentLen));
         m_messageQueue.pop();
         spdlog::info("[logic system] dealMessage() handle message id: {}", message_node->m_receviceNdoe->m_messageId);
@@ -139,33 +137,37 @@ void LogicSystem::dealMessage()
 
 void LogicSystem::registerCallBacks()
 {
-    m_callbackFunctions[MessageType::MESSAGE_CHAT_LOGIN] = [this](
+    m_callbackFunctions[MessageType::MESSAGE_CHAT_LOGIN_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const short message_id,
         const std::string& message_data)
             {
-                loginHandler(session, message_id, message_data);
+                loginHandler(session, message_data);
+            };
+
+    m_callbackFunctions[MessageType::MESSAGE_SEARCH_USER_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                searchUserHandler(session, message_data);
             };
 }
 
-void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const short message_id, const std::string& message_data) const
+void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     Json::Reader reader;
     Json::Value root;
     reader.parse(message_data, root);
     auto uid = root["uid"].asUInt64();
     auto token = root["token"].asString();
-#ifdef CHAT_DEBUG
+
     spdlog::debug("[logic system] user login, id: {}, token: {}", uid, token);
-#else
-    spdlog::info("[logic system] user login, id: {}", uid);
-#endif
+
     Json::Value return_value;
     Defer defer([this, &return_value, session]()
         {
             (void) this;
             const std::string return_str = return_value.toStyledString();
-            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_LOGIN_RESP);
+            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_LOGIN_RSP);
         });
 
     // auto rsp = StatusGrpcClient::GetInstance().login(uid, token);
@@ -245,7 +247,110 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     UserManager::GetInstance().setUserSession(uid, session);
 }
 
-void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, short message_id, const std::string& message_data)
+void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    Json::Reader reader;
+    Json::Value root;
+    reader.parse(message_data, root);
+    auto user_name_or_uid = root["uid"].asString(); // 可能是 uid 也有可能是 用户名
+
+    spdlog::debug("[logic system] user search, search value is: {}", user_name_or_uid);
+
+    Json::Value return_value;
+    Defer defer([this, &return_value, session]()
+        {
+            (void) this;
+            const std::string return_str = return_value.toStyledString();
+            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_SEARCH_USER_RSP);
+        });
+    std::uint64_t uid{};
+    const auto [ptr, ec] = std::from_chars(
+        user_name_or_uid.c_str(), user_name_or_uid.c_str() + user_name_or_uid.size(), uid);
+    if (ptr == user_name_or_uid.c_str() + user_name_or_uid.size()) // 是纯数字，先找uid
+    {
+        auto info = SearchUserByUid(uid);
+        if (info) // 找到
+        {
+            return_value["error"] = ErrorCode::SUCCESS;
+            return_value["uid"] = info->uid;
+            return_value["user_name"] = info->name;
+            return_value["desc"] = info->desc;
+            return_value["sex"] = info->sex;
+            return_value["icon"] = info->icon;
+            return;
+        }
+    }
+    // 继续找用户名
+    auto infos = SearchUserByName(user_name_or_uid);
+    // TODO 多个结果返回, 暂时只返回第一个
+    for (const auto& info : infos)
+    {
+        return_value["error"] = ErrorCode::SUCCESS;
+        return_value["uid"] = info->uid;
+        return_value["user_name"] = info->name;
+        return_value["desc"] = info->desc;
+        return_value["sex"] = info->sex;
+        return_value["icon"] = info->icon;
+        return;
+    }
+
+    // 都没找到
+    return_value["error"] = ErrorCode::USER_NOT_FOUND;
+    return_value["uid"] = "0";
+}
+
+void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, const std::string& message_data)
 {
     //TODO
+}
+
+std::shared_ptr<UserInfo> LogicSystem::SearchUserByUid(const uint64_t uid)
+{
+    // redis 查询
+    const auto base_key = USER_BASE_INFO + std::to_string(uid);
+    std::string info_str;
+    if (RedisManager::GetInstance().get(base_key, info_str))
+    {
+        Json::Reader reader;
+        Json::Value root;
+        reader.parse(info_str, root);
+        return std::make_shared<UserInfo>(
+            std::string(),
+            root["name"].asString(),
+            root["email"].asString(),
+            root["desc"].asString(),
+            root["icon"].asString(),
+            root["uid"].asUInt64(),
+            static_cast<Sex>(root["sex"].asUInt())
+            );
+    }
+    // 查数据库
+    const auto user_info = MySqlManager::GetInstance().getUser(uid);
+
+    RedisManager::GetInstance().insert(user_info);
+    return user_info;
+}
+
+std::vector<std::shared_ptr<UserInfo>> LogicSystem::SearchUserByName(const std::string& name)
+{
+    // redis 查询
+    const auto base_key = USER_BASE_INFO_BY_NAME + name;
+    std::string infos_str;
+    std::vector<std::shared_ptr<UserInfo>> user_infos;
+    if (RedisManager::GetInstance().get(base_key, infos_str))
+    {
+        Json::Reader reader;
+        Json::Value root;
+        reader.parse(infos_str, root);
+        for (const auto & i : root["uids"])
+        {
+            user_infos.push_back(SearchUserByUid(i.asUInt64()));
+        }
+        return user_infos;
+    }
+    // 查数据库
+    user_infos = MySqlManager::GetInstance().getUser(name);
+
+    RedisManager::GetInstance().insert(user_infos);
+    return user_infos;
 }

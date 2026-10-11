@@ -25,4 +25,9 @@ std::shared_ptr<UserInfo> MySqlManager::getUser(const size_t uid) const
     return m_mySqlDao.getUser(uid);
 }
 
+std::vector<std::shared_ptr<UserInfo>> MySqlManager::getUser(const std::string& name) const
+{
+    return m_mySqlDao.getUser(name);
+}
+
 MySqlManager::MySqlManager() = default;
