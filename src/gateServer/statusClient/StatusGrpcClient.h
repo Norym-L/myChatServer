@@ -98,7 +98,7 @@ class StatusGrpcClient : public TSingLeton<StatusGrpcClient>
 
 public:
     ~StatusGrpcClient() = default;
-    [[nodiscard]] GetChatServerRsp getChatServer(int uid) const;
+    [[nodiscard]] GetChatServerRsp getChatServer(std::uint64_t uid) const;
 
 private:
     StatusGrpcClient();

@@ -1,10 +1,13 @@
 #include "LogicSystem.h"
 
+#include <cstdint>
+
 #include <json/json.h>
 #include <json/reader.h>
 
 #include <Defer.h>
 #include <sql/mysql/MySqlManager.h>
+#include <utils/UidCodec.h>
 
 #include "utils/config.h"
 #include "RedisManager.h"
@@ -157,10 +160,9 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     Json::Reader reader;
     Json::Value root;
     reader.parse(message_data, root);
-    auto uid = root["uid"].asUInt64();
-    auto token = root["token"].asString();
-
-    spdlog::debug("[logic system] user login, id: {}, token: {}", uid, token);
+    // 客户端 uid 统一为字符串：非字符串或非纯数字一律按非法 uid 处理，避免 jsoncpp 抛异常
+    const Json::Value& uid_value = root["uid"];
+    const auto token = root["token"].asString();
 
     Json::Value return_value;
     Defer defer([this, &return_value, session]()
@@ -169,6 +171,16 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
             const std::string return_str = return_value.toStyledString();
             session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_LOGIN_RSP);
         });
+
+    std::uint64_t uid{0};
+    if (!uid_value.isString() || !uid_codec::ParseUid(uid_value.asString(), uid))
+    {
+        spdlog::warn("[logic system] login with invalid uid: {}", root["uid"].toStyledString());
+        return_value["error"] = ErrorCode::USER_UID_INVALID;
+        return;
+    }
+
+    spdlog::debug("[logic system] user login, id: {}, token: {}", uid, token);
 
     // auto rsp = StatusGrpcClient::GetInstance().login(uid, token);
     // return_value["error"] = rsp.error();
@@ -208,7 +220,7 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
         return;
     }
 
-    return_value["uid"] = uid;
+    return_value["uid"] = uid_str; // uid 对外统一为字符串
     return_value["token"] = token_value;
     return_value["name"] = user_info->name;
     return_value["email"] = user_info->email;
@@ -252,7 +264,9 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     Json::Reader reader;
     Json::Value root;
     reader.parse(message_data, root);
-    auto user_name_or_uid = root["uid"].asString(); // 可能是 uid 也有可能是 用户名
+    // 客户端 uid 用字符串传递；非字符串按空串处理，避免 jsoncpp 抛异常终止逻辑线程
+    const Json::Value& search_value = root["uid"];
+    const auto user_name_or_uid = search_value.isString() ? search_value.asString() : std::string(); // 可能是 uid 也有可能是 用户名
 
     spdlog::debug("[logic system] user search, search value is: {}", user_name_or_uid);
 
@@ -266,13 +280,15 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     std::uint64_t uid{};
     const auto [ptr, ec] = std::from_chars(
         user_name_or_uid.c_str(), user_name_or_uid.c_str() + user_name_or_uid.size(), uid);
-    if (ptr == user_name_or_uid.c_str() + user_name_or_uid.size()) // 是纯数字，先找uid
+    // 必须同时满足无错误且全部字符被消费：空串在 from_chars 下同样满足 ptr == end，
+    // 但没有 ec 判断时会以 uid=0 去查一次库
+    if (ec == std::errc() && ptr == user_name_or_uid.c_str() + user_name_or_uid.size()) // 是纯数字，先找uid
     {
         auto info = SearchUserByUid(uid);
         if (info) // 找到
         {
             return_value["error"] = ErrorCode::SUCCESS;
-            return_value["uid"] = info->uid;
+            return_value["uid"] = std::to_string(info->uid); // uid 对外统一为字符串
             return_value["user_name"] = info->name;
             return_value["desc"] = info->desc;
             return_value["sex"] = info->sex;
@@ -286,7 +302,7 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     for (const auto& info : infos)
     {
         return_value["error"] = ErrorCode::SUCCESS;
-        return_value["uid"] = info->uid;
+        return_value["uid"] = std::to_string(info->uid); // uid 对外统一为字符串
         return_value["user_name"] = info->name;
         return_value["desc"] = info->desc;
         return_value["sex"] = info->sex;

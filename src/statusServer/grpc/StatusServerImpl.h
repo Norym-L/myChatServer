@@ -29,7 +29,7 @@ public:
     Status Login(grpc::ServerContext* context, const message::LoginReq* request, message::LoginRsp* response) override;
 
 private:
-    static void InsertToken(size_t uid, const std::string& token);
+    static void InsertToken(std::uint64_t uid, const std::string& token);
     ChatServer getChatServer();
 
     std::unordered_map<std::string, ChatServer> m_servers;

@@ -161,7 +161,7 @@ int MySqlDao::registerUser(const std::string& email, const std::string& name, co
     return -1;
 }
 
-MatchResult MySqlDao::checkIsAccountMatchEmail(const std::string& email, int account) const
+MatchResult MySqlDao::checkIsAccountMatchEmail(const std::string& email, const std::uint64_t account) const
 {
     auto connection = m_pool->getConnection();
     if (!connection)
@@ -200,7 +200,7 @@ MatchResult MySqlDao::checkIsAccountMatchEmail(const std::string& email, int acc
     }
 }
 
-bool MySqlDao::updatePassword(const int account, const std::string& password) const
+bool MySqlDao::updatePassword(const std::uint64_t account, const std::string& password) const
 {
     auto connection = m_pool->getConnection();
     if (!connection)
@@ -240,7 +240,7 @@ bool MySqlDao::updatePassword(const int account, const std::string& password) co
     return false;
 }
 
-MatchResult MySqlDao::checkIsPasswordMatchAccount(const std::string& password, int account) const
+MatchResult MySqlDao::checkIsPasswordMatchAccount(const std::string& password, const std::uint64_t account) const
 {
     auto connection = m_pool->getConnection();
     if (!connection)
@@ -282,7 +282,7 @@ MatchResult MySqlDao::checkIsPasswordMatchAccount(const std::string& password, i
     }
 }
 
-std::shared_ptr<UserInfo> MySqlDao::getUser(const size_t uid) const
+std::shared_ptr<UserInfo> MySqlDao::getUser(const std::uint64_t uid) const
 {
     auto connection = m_pool->getConnection();
     if (!connection)

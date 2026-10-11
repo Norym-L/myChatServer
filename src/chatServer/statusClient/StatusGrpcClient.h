@@ -103,7 +103,7 @@ class StatusGrpcClient : public TSingLeton<StatusGrpcClient>
 public:
     ~StatusGrpcClient() = default;
 
-    [[nodiscard]] message::LoginRsp login(size_t uid, const std::string& token) const;
+    [[nodiscard]] message::LoginRsp login(std::uint64_t uid, const std::string& token) const;
 
 private:
     StatusGrpcClient();

@@ -148,6 +148,11 @@ RedisManager::~RedisManager()
 
 void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info) const
 {
+    if (!user_info)
+    {
+        return;
+    }
+
     Json::Value redis_root;
     redis_root["token"] = user_info->token.empty() ? "" : user_info->token;
     redis_root["name"] = user_info->name;
@@ -164,9 +169,20 @@ void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info) const
 
 void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_infos) const
 {
+    // 按用户名查不到用户时调用方会传入空列表：此时不应写缓存，
+    // 更不能对空列表取 front()（Debug 构建下直接断言崩溃，Release 下是未定义行为）
+    if (user_infos.empty() || !user_infos.front())
+    {
+        return;
+    }
+
     Json::Value redis_root;
     for (const auto& user_info : user_infos)
     {
+        if (!user_info)
+        {
+            continue;
+        }
         redis_root["uids"].append(user_info->uid);
     }
     if (!set(USER_BASE_INFO_BY_NAME + user_infos.front()->name, redis_root.toStyledString()))

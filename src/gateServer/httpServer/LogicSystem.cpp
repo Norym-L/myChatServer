@@ -1,6 +1,7 @@
 #include "LogicSystem.h"
 #include "HttpConnection.h"
 #include "../verifyClient/VerifyGrpcClient.h"
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <spdlog/spdlog.h>
@@ -10,6 +11,7 @@
 
 #include <RedisManager.h>
 #include <sql/mysql/MySqlManager.h>
+#include <utils/UidCodec.h>
 #include "../statusClient/StatusGrpcClient.h"
 
 LogicSystem::~LogicSystem() = default;
@@ -185,7 +187,7 @@ LogicSystem::LogicSystem()
                 spdlog::info("[LogicSystem] /user_register user register success, uid: {}, email: {}", uid, email);
 
                 root["error"] = static_cast<int>(ErrorCode::SUCCESS);
-                root["uid"] = uid;
+                root["uid"] = std::to_string(uid); // uid 对外统一为字符串
                 root["email"] = email;
                 root["user"] = name;
                 // 响应不回显明文密码
@@ -220,7 +222,17 @@ LogicSystem::LogicSystem()
                     return true;
                 }
 
-                auto account = src_root["user"].asUInt();
+                // 客户端 uid 统一以字符串传递，这里解析为 std::uint64_t
+                const auto account_str = src_root["user"].asString();
+                std::uint64_t account{0};
+                if (!uid_codec::ParseUid(account_str, account))
+                {
+                    spdlog::debug("[LogicSystem] /reset_password invalid uid string: {}", account_str);
+                    root["error"] = static_cast<int>(ErrorCode::USER_UID_INVALID);
+                    std::string json_str = root.toStyledString();
+                    beast::ostream(connection->m_response.body()) << json_str;
+                    return true;
+                }
                 auto email = src_root["email"].asString();
                 auto password = src_root["password"].asString();
 
@@ -308,7 +320,18 @@ LogicSystem::LogicSystem()
                     return true;
                 }
 
-                auto account = std::stoull(src_root["user"].asString());
+                // 客户端 uid 统一以字符串传递，这里解析为 std::uint64_t
+                const auto account_str = src_root["user"].asString();
+                std::uint64_t account{0};
+                if (!uid_codec::ParseUid(account_str, account))
+                {
+                    // 空串或非纯数字不能进入后续校验，否则会以 uid=0 误判为"密码错误"
+                    spdlog::debug("[LogicSystem] /user_login invalid uid string: {}", account_str);
+                    root["error"] = static_cast<int>(ErrorCode::USER_UID_INVALID);
+                    std::string json_str = root.toStyledString();
+                    beast::ostream(connection->m_response.body()) << json_str;
+                    return true;
+                }
                 auto password = src_root["password"].asString();
 
                 const auto passwordMatch = MySqlManager::GetInstance().checkIsPasswordMatchAccount(account, password);
@@ -345,7 +368,7 @@ LogicSystem::LogicSystem()
 
                 root["error"] = 0;
                 root["email"] = src_root["email"].asString();
-                root["uid"] = account;
+                root["uid"] = std::to_string(account); // uid 对外统一为字符串
                 root["token"] = reply.token();
                 root["host"] = reply.host();
                 root["port"] = reply.port();

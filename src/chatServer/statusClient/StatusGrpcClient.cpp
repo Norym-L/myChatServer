@@ -4,7 +4,7 @@
 #include <memory>
 #include <ConfigManager.h>
 
-message::LoginRsp StatusGrpcClient::login(const size_t uid, const std::string& token) const
+message::LoginRsp StatusGrpcClient::login(const std::uint64_t uid, const std::string& token) const
 {
     ClientContext context;
     // 必须设置超时：本方法在逻辑线程持有消息队列锁期间被调用，对端假死会让整条消息处理链停摆

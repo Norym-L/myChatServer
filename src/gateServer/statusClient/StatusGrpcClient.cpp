@@ -4,7 +4,7 @@
 #include <memory>
 #include <ConfigManager.h>
 
-GetChatServerRsp StatusGrpcClient::getChatServer(const int uid) const
+GetChatServerRsp StatusGrpcClient::getChatServer(const std::uint64_t uid) const
 {
     ClientContext context;
     // 必须设置超时：对端假死（连接建立但不响应）时，同步 RPC 会永久阻塞调用线程

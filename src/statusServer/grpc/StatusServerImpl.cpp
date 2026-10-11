@@ -97,7 +97,7 @@ Status StatusServerImpl::GetChatServer(grpc::ServerContext* context, const messa
 
 Status StatusServerImpl::Login(grpc::ServerContext* context, const message::LoginReq* request, message::LoginRsp* response)
 {
-    const auto uid = request->uid();
+    const std::uint64_t uid = request->uid();
     auto token = request->token();
 
     std::string token_value{};
@@ -118,7 +118,7 @@ Status StatusServerImpl::Login(grpc::ServerContext* context, const message::Logi
     return Status::OK;
 }
 
-void StatusServerImpl::InsertToken(const size_t uid, const std::string& token)
+void StatusServerImpl::InsertToken(const std::uint64_t uid, const std::string& token)
 {
     // 写入失败不能静默：token 没进 Redis 时，ChatServer 侧校验会一律返回 USER_UID_INVALID
     if (!RedisManager::GetInstance().set(USER_TOKEN_PERFIX + std::to_string(uid), token))

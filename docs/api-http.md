@@ -15,7 +15,9 @@ Base URL：`http://<gate-host>:8080`
 | 请求体大小 | 读取缓冲区 `8192` 字节，超出会被中间件拒绝 |
 | 错误码 | 见 [`error-codes.md`](error-codes.md) |
 
-> ⚠️ `user` 字段在不同接口中语义不同：在 `/user_register` 中表示**昵称（字符串）**，在 `/user_login`、`/reset_password` 中表示 **uid（数字）**。
+> ⚠️ `user` 字段在不同接口中语义不同：在 `/user_register` 中表示**昵称（字符串）**，在 `/user_login`、`/reset_password` 中表示 **uid（字符串）**。
+>
+> ⚠️ **uid 一律为 JSON 字符串**：客户端请求中的 uid 以字符串发送（如 `"10001"`），服务端响应中的 `uid` 也以字符串返回；服务端内部统一使用 `std::uint64_t`，非字符串或非纯数字的 uid 一律返回 `1011`。
 
 ## 2. 接口一览
 
@@ -97,7 +99,7 @@ param 2 key is a value is A
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `error` | int | `0` |
-| `uid` | int | 新用户 id |
+| `uid` | string | 新用户 id（字符串） |
 | `email` | string | 回显邮箱 |
 | `user` | string | 回显昵称 |
 
@@ -123,13 +125,13 @@ param 2 key is a value is A
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `user` | int | 是 | **uid**（数字） |
+| `user` | string | 是 | **uid**（字符串） |
 | `email` | string | 是 | 邮箱，须与该 uid 绑定 |
 | `password` | string | 是 | 新密码 |
 | `verify_code` | string | 是 | 邮箱验证码 |
 
 ```json
-{ "user": 10001, "email": "user@example.com", "password": "NewP@ss", "verify_code": "123456" }
+{ "user": "10001", "email": "user@example.com", "password": "NewP@ss", "verify_code": "123456" }
 ```
 
 **响应（成功）**
@@ -152,6 +154,7 @@ param 2 key is a value is A
 | `1013` | 依赖服务不可用（MySQL 连接池超时/异常） |
 | `1007` | uid 与 email 不匹配 |
 | `1008` | 密码更新失败 |
+| `1011` | `user` 不是合法 uid 字符串（空串/含非数字字符/数值溢出） |
 
 ---
 
@@ -163,12 +166,12 @@ param 2 key is a value is A
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `user` | int | 是 | **uid**（数字） |
+| `user` | string | 是 | **uid**（字符串） |
 | `password` | string | 是 | 明文密码 |
 | `email` | string | 否 | 仅用于响应回显，**不参与校验** |
 
 ```json
-{ "user": 10001, "password": "P@ssw0rd" }
+{ "user": "10001", "password": "P@ssw0rd" }
 ```
 
 **响应（成功）**
@@ -177,13 +180,13 @@ param 2 key is a value is A
 |------|------|------|
 | `error` | int | `0` |
 | `email` | string | 回显请求中的 `email`（未传则为空串） |
-| `uid` | int | 用户 id |
+| `uid` | string | 用户 id（字符串） |
 | `token` | string | 一次性登录票据（UUID），用于连接 ChatServer |
 | `host` | string | 分配到的 ChatServer 地址 |
 | `port` | string | 分配到的 ChatServer 端口 |
 
 ```json
-{ "error": 0, "email": "", "uid": 10001, "token": "1f0c...e9", "host": "127.0.0.1", "port": "8090" }
+{ "error": 0, "email": "", "uid": "10001", "token": "1f0c...e9", "host": "127.0.0.1", "port": "8090" }
 ```
 
 **错误码**
@@ -194,6 +197,7 @@ param 2 key is a value is A
 | `1013` | 依赖服务不可用（MySQL 连接池超时/异常） |
 | `1006` | 密码错误或用户不存在 |
 | `1002` | 调用 StatusServer 获取聊天服失败（含超时） |
+| `1011` | `user` 不是合法 uid 字符串（空串/含非数字字符/数值溢出） |
 
 > 取得 `token` / `host` / `port` 后，客户端应连接该 ChatServer 并发送 `message_id = 0` 的登录帧，详见 [`api-tcp.md`](api-tcp.md)。
 
@@ -212,5 +216,5 @@ curl -X POST http://127.0.0.1:8080/user_register \
 
 # 登录
 curl -X POST http://127.0.0.1:8080/user_login \
-     -d '{"user":10001,"password":"P@ssw0rd"}'
+     -d '{"user":"10001","password":"P@ssw0rd"}'
 ```

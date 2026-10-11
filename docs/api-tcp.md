@@ -26,16 +26,17 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 
 | message_id | 名称 | 方向 | body |
 |-----------|------|------|------|
-| `0` | `MESSAGE_CHAT_LOGIN` | 客户端 → 服务端 | JSON `{ "uid": <int>, "token": <string> }` |
+| `0` | `MESSAGE_CHAT_LOGIN` | 客户端 → 服务端 | JSON `{ "uid": "<string>", "token": <string> }` |
 | `1` | `MESSAGE_CHAT_LOGIN_RESP` | 服务端 → 客户端 | JSON，见下表 |
 
 ### 2.1 MESSAGE_CHAT_LOGIN（0）
 
 ```json
-{ "uid": 10001, "token": "1f0c9d3a-...." }
+{ "uid": "10001", "token": "1f0c9d3a-...." }
 ```
 
-- `uid` / `token` 取自 `POST /user_login` 的响应。
+- `uid` / `token` 取自 `POST /user_login` 的响应；`uid` 为**字符串**，服务端内部按 `std::uint64_t` 处理。
+- 非字符串、空串或含非数字字符的 `uid` → 直接回 `1011`（不查询 Redis / MySQL）。
 - 服务端将 `uid` 与 `token` 提交给 StatusServer 的 `StatusService.Login` 校验。
 
 ### 2.2 MESSAGE_CHAT_LOGIN_RESP（1）
@@ -43,13 +44,13 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 **成功**
 
 ```json
-{ "error": 0, "uid": 10001, "token": "1f0c9d3a-....", "name": "norym" }
+{ "error": 0, "uid": "10001", "token": "1f0c9d3a-....", "name": "norym" }
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `error` | int | `0` 成功，其余见 [`error-codes.md`](error-codes.md) |
-| `uid` | int | 用户 id |
+| `uid` | string | 用户 id（字符串） |
 | `token` | string | 校验通过的 token |
 | `name` | string | 用户昵称（来自 MySQL） |
 
@@ -58,7 +59,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 | error | 含义 |
 |-------|------|
 | `0` | 登录成功（此时才会携带 `uid` / `token` / `name`） |
-| `1011` | uid 校验失败：StatusServer 中不存在该 uid 的 token，**或**登录后回查用户信息失败（数据库无该 uid / 数据库不可用） |
+| `1011` | uid 校验失败：客户端 uid 不是合法字符串，**或** StatusServer 中不存在该 uid 的 token，**或**登录后回查用户信息失败（数据库无该 uid / 数据库不可用） |
 | `1012` | token 与服务端记录不一致 |
 | `1002` | 调用 StatusServer 失败或超时 |
 
@@ -83,7 +84,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
    |                                                            |
    |  connect 127.0.0.1:8090                                    |
    |----------------------------------------------------------->|
-   |  [00 00][00 23]{"uid":10001,"token":"1f0c...e9"}           |
+   |  [00 00][00 23]{"uid":"10001","token":"1f0c...e9"}         |
    |----------------------------------------------------------->|
    |                                        StatusService.Login |
    |                                           （校验 uid+token） |
@@ -98,7 +99,7 @@ Python 参考实现：
 ```python
 import json, socket, struct
 
-payload = json.dumps({"uid": 10001, "token": "1f0c...e9"}).encode()
+payload = json.dumps({"uid": "10001", "token": "1f0c...e9"}).encode()
 frame = struct.pack(">hh", 0, len(payload)) + payload   # message_id=0 (LOGIN)
 
 s = socket.create_connection(("127.0.0.1", 8090), timeout=10)
