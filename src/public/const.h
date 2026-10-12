@@ -29,15 +29,6 @@ enum ErrorCode
     USER_NOT_FOUND       = 1014, // 查询的用户不存在
 };
 
-/// 账号/密码校验结果：区分"业务不匹配"与"依赖不可用"，避免两者共用同一错误码
-enum class MatchResult
-{
-    Matched,     // 匹配
-    NotMatched,  // 不匹配
-    Unavailable, // 依赖服务不可用（连接池获取超时、数据库异常等）
-};
-
-
 #define MAX_LENGTH      (1024 * 2)
 #define HEAD_TOTAL_LEN  4 // tcp头部长度
 #define HEAD_ID_LEN     2 // tcp头部 message_id 长度

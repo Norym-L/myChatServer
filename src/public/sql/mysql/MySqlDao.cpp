@@ -121,44 +121,28 @@ MySqlDao::~MySqlDao()
 
 int MySqlDao::registerUser(const std::string& email, const std::string& name, const std::string& password) const
 {
-    auto connection = m_pool->getConnection();
-    if (!connection)
-    {
-        return -1;
-    }
+    auto argon2id_password = PasswordVerify::hashPassword(password); // argon2id加密密码
+    return callMysqlSpWithResult("CALL reg_user(?, ?, ?, @result)", name, email, argon2id_password);
+}
 
-    try
-    {
-        const auto sql = connection->connection->prepare_statement("CALL reg_user(?, ?, ?, @result)");
-        auto argon2id_password = PasswordVerify::hashPassword(password); // argon2id加密密码
-        mysql::results result;
-        connection->connection->execute(sql.bind(name, email, argon2id_password), result);
+int MySqlDao::sendFriendRequest(const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message) const
+{
+    return callMysqlSpWithResult("CALL send_friend_request(?, ?, ?, @result)", applicant_uid, receiver_uid, verify_message);
+}
 
-        mysql::results out_result;
-        connection->connection->execute("SELECT @result", out_result);
-        if (!out_result.rows().empty())
-        {
-            int ret_code = out_result.rows().at(0).at(0).as_int64();
-            spdlog::info("[MySqlDao] register user return code: {}", ret_code);
-            m_pool->returnConnection(std::move(connection));
-            return ret_code;
-        }
+int MySqlDao::handleFriendRequest(const std::uint64_t request_id, const std::uint64_t receiver_uid, const FriendApplyStatus status) const
+{
+    return callMysqlSpWithResult("CALL handle_friend_request(?, ?, ?, @result)", request_id, receiver_uid, status);
+}
 
-        m_pool->returnConnection(std::move(connection));
-        return -1;
-    }
-    catch (mysql::error_with_diagnostics& e)
-    {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
-    }
-    catch (const std::exception& e)
-    {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
-    }
+int MySqlDao::deleteFriend(const std::uint64_t uid, const std::uint64_t friend_uid) const
+{
+    return callMysqlSpWithResult("CALL del_friend(?, ?, @result)", uid, friend_uid);
+}
 
-    m_pool->returnConnection(std::move(connection));
-    return -1;
+int MySqlDao::updateFriendRemark(const std::uint64_t uid, const std::uint64_t friend_uid, const std::string& remark) const
+{
+    return callMysqlSpWithResult("CALL update_friend_remark(?, ?, @result)", uid, friend_uid, remark);
 }
 
 MatchResult MySqlDao::checkIsAccountMatchEmail(const std::string& email, const std::uint64_t account) const
@@ -354,14 +338,14 @@ std::vector<std::shared_ptr<UserInfo> > MySqlDao::getUser(const std::string& nam
         for (const auto& row: result.rows())
         {
             auto user_info = std::make_shared<UserInfo>(
-            std::string(), // token 置空字符串：用 nullptr 构造 std::string 属于未定义行为
-            name,
-            row.at(1).as_string(),
-            row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()),
-            row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()),
-            row.at(0).as_uint64(),
-            static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64())
-            );
+                std::string(), // token 置空字符串：用 nullptr 构造 std::string 属于未定义行为
+                name,
+                row.at(1).as_string(),
+                row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()),
+                row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()),
+                row.at(0).as_uint64(),
+                static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64())
+                );
             user_infos.push_back(user_info);
         }
 
