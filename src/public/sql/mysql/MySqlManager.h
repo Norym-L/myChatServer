@@ -23,9 +23,10 @@ public:
      * @param applicant_uid 发送请求用户id
      * @param receiver_uid 接收请求用户id
      * @param verify_message 验证信息
+     * @param remark 用户给对方的备注
      * @return 0 申请成功 -1 申请人不存在 -2 接收人不存在 -3 不能添加自己 -4 已经是好友 -5 对方已申请你，请直接同意 -10 代表数据库异常
      */
-    [[nodiscard]] int sendFriendRequest(std::uint64_t applicant_uid, std::uint64_t receiver_uid, const std::string& verify_message) const;
+    [[nodiscard]] int sendFriendRequest(std::uint64_t applicant_uid, std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const;
     /**
      * 处理好友请求
      * @param request_id 好友请求编号
