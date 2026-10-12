@@ -12,6 +12,7 @@
 #include "utils/config.h"
 #include "RedisManager.h"
 #include "data/UserManager.h"
+#include "grpc/ChatGrpcClient.h"
 #include "net/CSession.h"
 #include "statusClient/StatusGrpcClient.h"
 
@@ -152,6 +153,13 @@ void LogicSystem::registerCallBacks()
         const std::string& message_data)
             {
                 searchUserHandler(session, message_data);
+            };
+
+    m_callbackFunctions[MessageType::MESSAGE_ADD_FRIEND_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                sendFriendRequestHandler(session, message_data);
             };
 }
 
@@ -299,7 +307,7 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     // 继续找用户名
     auto infos = SearchUserByName(user_name_or_uid);
     // TODO 多个结果返回, 暂时只返回第一个
-    for (const auto& info : infos)
+    for (const auto& info: infos)
     {
         return_value["error"] = ErrorCode::SUCCESS;
         return_value["uid"] = std::to_string(info->uid); // uid 对外统一为字符串
@@ -315,9 +323,88 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     return_value["uid"] = "0";
 }
 
+void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    Json::Reader reader;
+    Json::Value root;
+    reader.parse(message_data, root);
+
+    std::uint64_t form_uid{};
+    std::uint64_t to_uid{};
+    if (!uid_codec::ParseUid(root["uid"].asString(), form_uid) ||
+        !uid_codec::ParseUid(root["to_uid"].asString(), to_uid))
+    {
+        spdlog::warn("[logic system] add friend request, parse uid failed, str is {} and {}", root["uid"].asString(), root["to_uid"].asString());
+    }
+    spdlog::debug("[logic system] add friend request, from {} to {}", form_uid, to_uid);
+    const std::string verify_info = root["verify_info"].asString();
+    const std::string remark = root["remark"].asString();
+
+    Json::Value return_value;
+    Defer defer([this, &return_value, session]()
+        {
+            (void) this;
+            const std::string return_str = return_value.toStyledString();
+            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_ADD_FRIEND_RSP);
+        });
+
+    const auto error_code = MySqlManager::GetInstance().sendFriendRequest(form_uid, to_uid, verify_info, remark);
+    if (error_code != 0)
+    {
+        if (error_code == -1 || error_code == -2) // 这里拦截用户不存在
+        {
+            return_value["error"] = ErrorCode::USER_UID_INVALID;
+            spdlog::warn("[LogicSystem::sendFriendRequestHandler] recvive a unexist uid form_uid: {} to_uid: {}", form_uid, to_uid);
+        }
+        else if (error_code == -3)
+        {
+            return_value["error"] = ErrorCode::CAN_NOT_ADD_YOURSELF_AS_A_FRIEND;
+        }
+        else if (error_code == -4)
+        {
+            return_value["error"] = ErrorCode::USER_IS_YOUR_FRIEND_BEFOR;
+        }
+        else if (error_code == -5)
+        {
+            return_value["error"] = ErrorCode::CHACK_YOUR_RECEIVED_FRIEND_REQUEST;
+        }
+        else if (error_code == -10)
+        {
+            return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        }
+        return;
+    }
+    return_value["error"] = ErrorCode::SUCCESS;
+    const auto user_self_info = SearchUserByUid(form_uid);
+    (void) GrpcSendFriendRequestToOther(form_uid, to_uid, verify_info, user_self_info->name, user_self_info->icon);
+}
+
 void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, const std::string& message_data)
 {
     //TODO
+}
+
+bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t from_uid, const std::uint64_t to_uid, const std::string& verify_info, const std::string& name, const std::string& icon)
+{
+    // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
+    const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
+    if (user_ip.empty())
+    {
+        return false;
+    }
+    AddFriendReq req;
+    req.set_formuid(from_uid);
+    req.set_touid(to_uid);
+    req.set_desc(verify_info);
+    req.set_icon(icon);
+    req.set_name(name);
+    const auto rsp = ChatGrpcClient::GetInstance().addFriend(user_ip, req);
+    if (rsp.error() != 0)
+    {
+        spdlog::warn("LogicSystem::sendFriendRequestToOther send grpc error, error: {}", rsp.error());
+        return false;
+    }
+    return true;
 }
 
 std::shared_ptr<UserInfo> LogicSystem::SearchUserByUid(const uint64_t uid)
@@ -347,18 +434,18 @@ std::shared_ptr<UserInfo> LogicSystem::SearchUserByUid(const uint64_t uid)
     return user_info;
 }
 
-std::vector<std::shared_ptr<UserInfo>> LogicSystem::SearchUserByName(const std::string& name)
+std::vector<std::shared_ptr<UserInfo> > LogicSystem::SearchUserByName(const std::string& name)
 {
     // redis 查询
     const auto base_key = USER_BASE_INFO_BY_NAME + name;
     std::string infos_str;
-    std::vector<std::shared_ptr<UserInfo>> user_infos;
+    std::vector<std::shared_ptr<UserInfo> > user_infos;
     if (RedisManager::GetInstance().get(base_key, infos_str))
     {
         Json::Reader reader;
         Json::Value root;
         reader.parse(infos_str, root);
-        for (const auto & i : root["uids"])
+        for (const auto& i: root["uids"])
         {
             user_infos.push_back(SearchUserByUid(i.asUInt64()));
         }

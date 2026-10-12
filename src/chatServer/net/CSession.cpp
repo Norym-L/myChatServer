@@ -1,6 +1,7 @@
 #include "CSession.h"
 
 #include <boost/uuid.hpp>
+#include <json/value.h>
 
 #include "../LogicSystem.h"
 #include "../CServer.h"
@@ -247,6 +248,18 @@ void CSession::handleWrite(const boost::system::error_code& error_code, std::sha
     {
         spdlog::warn("[tcp session] handle write error: {}", e.what());
     }
+}
+
+void CSession::sendAuthFriendRequest(const std::uint64_t from_uid, const std::string& name, const std::string& verify_info, const std::string& icon)
+{
+    Json::Value return_value;
+    return_value["error"] = ErrorCode::SUCCESS;
+    return_value["from_uid"] = std::to_string(from_uid);
+    return_value["name"] = name;
+    return_value["verify_info"] = verify_info;
+    return_value["icon"] = icon;
+    const std::string return_str = return_value.toStyledString();
+    send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_AUTH_FRIEND_REQ);
 }
 
 void CSession::close()

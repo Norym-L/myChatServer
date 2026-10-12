@@ -26,6 +26,7 @@ public:
     void postMessageToQueue(const std::shared_ptr<LogicNode>& logic_node);
     // 获取用户信息
     static std::shared_ptr<UserInfo> GetBaseInfo(const std::string& base_key, std::uint64_t uid);
+
 private:
     LogicSystem();
     void dealMessage();
@@ -33,12 +34,13 @@ private:
     void registerCallBacks();
     void loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    void sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 获取好友列表，好友申请列表
     void getUserApplyListAndFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data);
 
-
-    [[nodiscard]] static std::shared_ptr<UserInfo> SearchUserByUid(uint64_t uid) ;
-    [[nodiscard]] static std::vector<std::shared_ptr<UserInfo>> SearchUserByName(const std::string& name);
+    [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t from_uid, std::uint64_t to_uid, const std::string& verify_info, const std::string& name, const std::string& icon);
+    [[nodiscard]] static std::shared_ptr<UserInfo> SearchUserByUid(uint64_t uid);
+    [[nodiscard]] static std::vector<std::shared_ptr<UserInfo> > SearchUserByName(const std::string& name);
 
     std::mutex m_mutex;
     std::queue<std::shared_ptr<LogicNode> > m_messageQueue;

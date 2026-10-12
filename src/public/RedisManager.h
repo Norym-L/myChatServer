@@ -50,6 +50,8 @@ public:
 
     void insert(const std::shared_ptr<UserInfo>& user_info) const;
     void insert(const std::vector<std::shared_ptr<UserInfo> >& user_infos) const;
+    /// 获取用户ip，用户不在线返回空字符串
+    [[nodiscard]] std::string isUserOnLine(std::uint64_t uid) const;
 
     [[nodiscard]] bool get(const std::string& key, std::string& value) const;
     [[nodiscard]] bool set(const std::string& key, const std::string& value) const;

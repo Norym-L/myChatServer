@@ -14,7 +14,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 ```
 
 | 常量 | 值 | 说明 |
-|------|----|------|
+| ------ | ---- | ------ |
 | `HEAD_TOTAL_LEN` | 4 | 头部总长（2 + 2） |
 | `HEAD_ID_LEN` | 2 | message_id 长度 |
 | `HEAD_DATA_LEN` | 2 | body_len 长度 |
@@ -25,7 +25,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 ## 2. 消息定义
 
 | message_id | 名称 | 方向 | body |
-|-----------|------|------|------|
+| ----------- | ------ | ------ | ------ |
 | `0` | `MESSAGE_CHAT_LOGIN` | 客户端 → 服务端 | JSON `{ "uid": "<string>", "token": <string> }` |
 | `1` | `MESSAGE_CHAT_LOGIN_RESP` | 服务端 → 客户端 | JSON，见下表 |
 
@@ -48,7 +48,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 ```
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
+| ------ | ------ | ------ |
 | `error` | int | `0` 成功，其余见 [`error-codes.md`](error-codes.md) |
 | `uid` | string | 用户 id（字符串） |
 | `token` | string | 校验通过的 token |
@@ -57,7 +57,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 **失败**（仅含 `error`）
 
 | error | 含义 |
-|-------|------|
+| ------- | ------ |
 | `0` | 登录成功（此时才会携带 `uid` / `token` / `name`） |
 | `1011` | uid 校验失败：客户端 uid 不是合法字符串，**或** StatusServer 中不存在该 uid 的 token，**或**登录后回查用户信息失败（数据库无该 uid / 数据库不可用） |
 | `1012` | token 与服务端记录不一致 |
@@ -68,7 +68,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 ## 3. 会话行为与限制
 
 | 项 | 行为 |
-|----|------|
+| ---- | ------ |
 | 读超时 | **无**（不完整报文会一直等待，未实现心跳/空闲回收） |
 | 头部校验 | `message_id > MAX_LENGTH` 或 `body_len > MAX_LENGTH` → 关闭会话 |
 | 未知 message_id | 记录告警并丢弃该消息，不断开连接 |
@@ -118,3 +118,15 @@ print(message_id, json.loads(body.decode()))
 - 未实现心跳/空闲超时，粘性连接会长期占用会话；
 - 仅支持登录消息，尚无聊天转发/群组等业务消息类型；
 - 明文传输（未启用 TLS），且无消息级鉴权（登录成功后不再校验后续帧）。
+
+## 5. 实现的接口
+
+### 1. 发送好友验证请求（收到好友申请）
+
+MessageType::MESSAGE_AUTH_FRIEND_REQ
+
+- error ErrorCode
+- from_uid 对方（发送好友请求方）的uid
+- name 发送者 名称
+- verify_info 对方发来的验证信息
+- icon 发送者头像

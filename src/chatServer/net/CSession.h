@@ -3,7 +3,6 @@
 
 #include <string>
 #include <boost/asio.hpp>
-#include <spdlog/spdlog.h>
 #include <mutex>
 #include <queue>
 
@@ -39,6 +38,14 @@ public:
     void send(const char* message, size_t len, short message_id);
     void handleWrite(const boost::system::error_code& error_code, std::shared_ptr<CSession> shared_self);
 
+    /**
+     * 给当前session绑定用户发送好友验证申请（接收到好友请求）
+     * @param from_uid 发送者的id
+     * @param name 发送者名字
+     * @param verify_info 验证信息
+     * @param icon 发送者头像
+     */
+    void sendAuthFriendRequest(std::uint64_t from_uid, const std::string& name, const std::string& verify_info, const std::string& icon);
 
     void close();
 

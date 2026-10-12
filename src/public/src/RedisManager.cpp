@@ -191,6 +191,13 @@ void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_inf
     }
 }
 
+std::string RedisManager::isUserOnLine(const std::uint64_t uid) const
+{
+    std::string ip{};
+    (void)get(USER_IP_PERFIX + std::to_string(uid), ip);
+    return ip;
+}
+
 bool RedisManager::get(const std::string& key, std::string& value) const
 {
     const auto connect = m_connectPool->getConnection();

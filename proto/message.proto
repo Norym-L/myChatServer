@@ -65,14 +65,14 @@ message AddFriendReq
 {
   uint64 formUid = 1;
   uint64 toUid = 2;
-  string desc = 3;
+  string desc = 3; // 验证消息 verify_info
+  string icon = 4; // 发送者头像
+  string name = 5; // 发送者名称
 }
 // 回包
 message AddFriendRsp
 {
   int32 error = 1;
-  uint64 fromUid = 2;
-  uint64 toUid = 3;
 }
 // 回复好友申请
 message ReplyFriendReq
