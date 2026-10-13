@@ -30,6 +30,7 @@ enum ErrorCode
     CAN_NOT_ADD_YOURSELF_AS_A_FRIEND   = 1015, // 用户不能把自己作为添加好友的对象
     USER_IS_YOUR_FRIEND_BEFOR          = 1016, // 添加好友的对象已经是好友
     CHACK_YOUR_RECEIVED_FRIEND_REQUEST = 1018, // 请检查好友申请列表，对方已经向你发起了好友申请
+    USER_OUTLINE                       = 1019, // 用户离线
 };
 
 #define MAX_LENGTH      (1024 * 2)

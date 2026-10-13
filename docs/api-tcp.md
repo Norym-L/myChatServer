@@ -121,12 +121,16 @@ print(message_id, json.loads(body.decode()))
 
 ## 5. 实现的接口
 
-### 1. 发送好友验证请求（收到好友申请）
+### 1. 发送好友申请回包
 
-MessageType::MESSAGE_AUTH_FRIEND_REQ
+MessageType::MESSAGE_ADD_FRIEND_RSP
 
 - error ErrorCode
-- from_uid 对方（发送好友请求方）的uid
-- name 发送者 名称
-- verify_info 对方发来的验证信息
-- icon 发送者头像
+- add_friend_request_id 好友申请编号
+
+### 2. 发送好友验证请求（收到好友申请）
+
+MessageType::MESSAGE_NOTIFY_ADD_FRIEND_REQ
+
+- error ErrorCode
+- add_friend_request_id 好友申请编号

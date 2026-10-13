@@ -348,35 +348,36 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
             session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_ADD_FRIEND_RSP);
         });
 
-    const auto error_code = MySqlManager::GetInstance().sendFriendRequest(form_uid, to_uid, verify_info, remark);
-    if (error_code != 0)
+    const auto code = MySqlManager::GetInstance().sendFriendRequest(form_uid, to_uid, verify_info, remark);
+    if (code < 0) // 异常处理
     {
-        if (error_code == -1 || error_code == -2) // 这里拦截用户不存在
+        if (code == -1 || code == -2) // 这里拦截用户不存在
         {
             return_value["error"] = ErrorCode::USER_UID_INVALID;
             spdlog::warn("[LogicSystem::sendFriendRequestHandler] recvive a unexist uid form_uid: {} to_uid: {}", form_uid, to_uid);
         }
-        else if (error_code == -3)
+        else if (code == -3)
         {
             return_value["error"] = ErrorCode::CAN_NOT_ADD_YOURSELF_AS_A_FRIEND;
         }
-        else if (error_code == -4)
+        else if (code == -4)
         {
             return_value["error"] = ErrorCode::USER_IS_YOUR_FRIEND_BEFOR;
         }
-        else if (error_code == -5)
+        else if (code == -5)
         {
             return_value["error"] = ErrorCode::CHACK_YOUR_RECEIVED_FRIEND_REQUEST;
         }
-        else if (error_code == -10)
+        else if (code == -10)
         {
             return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         }
         return;
     }
     return_value["error"] = ErrorCode::SUCCESS;
+    return_value["add_friend_request_id"] = std::to_string(code);
     const auto user_self_info = SearchUserByUid(form_uid);
-    (void) GrpcSendFriendRequestToOther(form_uid, to_uid, verify_info, user_self_info->name, user_self_info->icon);
+    (void) GrpcSendFriendRequestToOther(code, to_uid);
 }
 
 void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, const std::string& message_data)
@@ -384,7 +385,7 @@ void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&
     //TODO
 }
 
-bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t from_uid, const std::uint64_t to_uid, const std::string& verify_info, const std::string& name, const std::string& icon)
+bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid)
 {
     // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
     const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
@@ -393,11 +394,8 @@ bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t from_uid, con
         return false;
     }
     AddFriendReq req;
-    req.set_formuid(from_uid);
     req.set_touid(to_uid);
-    req.set_desc(verify_info);
-    req.set_icon(icon);
-    req.set_name(name);
+    req.set_addfriendrequestid(add_friend_request_id);
     const auto rsp = ChatGrpcClient::GetInstance().addFriend(user_ip, req);
     if (rsp.error() != 0)
     {

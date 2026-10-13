@@ -250,16 +250,13 @@ void CSession::handleWrite(const boost::system::error_code& error_code, std::sha
     }
 }
 
-void CSession::sendAuthFriendRequest(const std::uint64_t from_uid, const std::string& name, const std::string& verify_info, const std::string& icon)
+void CSession::sendAuthFriendRequest(const std::uint64_t add_friend_request_id)
 {
     Json::Value return_value;
     return_value["error"] = ErrorCode::SUCCESS;
-    return_value["from_uid"] = std::to_string(from_uid);
-    return_value["name"] = name;
-    return_value["verify_info"] = verify_info;
-    return_value["icon"] = icon;
+    return_value["add_friend_request_id"] = add_friend_request_id;
     const std::string return_str = return_value.toStyledString();
-    send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_AUTH_FRIEND_REQ);
+    send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_NOTIFY_ADD_FRIEND_REQ);
 }
 
 void CSession::close()

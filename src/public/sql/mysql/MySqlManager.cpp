@@ -5,7 +5,7 @@ int MySqlManager::registerUser(const std::string& email, const std::string& name
     return m_mySqlDao.registerUser(email, name, password);
 }
 
-int MySqlManager::sendFriendRequest(const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const
+std::uint64_t MySqlManager::sendFriendRequest(const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const
 {
     return m_mySqlDao.sendFriendRequest(applicant_uid, receiver_uid, verify_message, remark);
 }

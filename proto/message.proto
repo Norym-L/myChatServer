@@ -63,11 +63,8 @@ service ChatService
 // 添加好友
 message AddFriendReq
 {
-  uint64 formUid = 1;
-  uint64 toUid = 2;
-  string desc = 3; // 验证消息 verify_info
-  string icon = 4; // 发送者头像
-  string name = 5; // 发送者名称
+  uint64 toUid = 1;
+  uint64 addFriendRequestId = 2;
 }
 // 回包
 message AddFriendRsp

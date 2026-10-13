@@ -40,12 +40,9 @@ public:
 
     /**
      * 给当前session绑定用户发送好友验证申请（接收到好友请求）
-     * @param from_uid 发送者的id
-     * @param name 发送者名字
-     * @param verify_info 验证信息
-     * @param icon 发送者头像
+     * @param add_friend_request_id 好友请求编号
      */
-    void sendAuthFriendRequest(std::uint64_t from_uid, const std::string& name, const std::string& verify_info, const std::string& icon);
+    void sendAuthFriendRequest(std::uint64_t add_friend_request_id);
 
     void close();
 

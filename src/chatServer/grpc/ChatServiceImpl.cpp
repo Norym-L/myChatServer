@@ -10,12 +10,12 @@ Status ChatServiceImpl::NotifyAddFriend(ServerContext* context, const AddFriendR
     const auto session = UserManager::GetInstance().getSession(request->touid());
     if (!session)
     {
-        response->set_error(ErrorCode::USER_UID_INVALID);
+        response->set_error(ErrorCode::USER_OUTLINE);
         return Status::OK;
     }
-    session->sendAuthFriendRequest(request->formuid(), request->name(), request->desc(), request->icon());
+    session->sendAuthFriendRequest(request->addfriendrequestid());
     response->set_error(ErrorCode::SUCCESS);
-    spdlog::debug("ChatServiceImpl::NotifyAddFriend send add friend request to: {} form: {}", request->touid(), request->formuid());
+    spdlog::debug("ChatServiceImpl::NotifyAddFriend send add friend request to: {} request id: {}", request->touid(), request->addfriendrequestid());
     return Status::OK;
 }
 

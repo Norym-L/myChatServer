@@ -125,7 +125,7 @@ int MySqlDao::registerUser(const std::string& email, const std::string& name, co
     return callMysqlSpWithResult("CALL reg_user(?, ?, ?, @result)", name, email, argon2id_password);
 }
 
-int MySqlDao::sendFriendRequest(const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const
+std::uint64_t MySqlDao::sendFriendRequest(const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const
 {
     return callMysqlSpWithResult("CALL send_friend_request(?, ?, ?, ?, @result)", applicant_uid, receiver_uid, verify_message, remark);
 }
