@@ -134,6 +134,7 @@ public:
     [[nodiscard]] MatchResult checkIsPasswordMatchAccount(const std::string& password, std::uint64_t account) const;
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(std::uint64_t uid) const;
     [[nodiscard]] std::vector<std::shared_ptr<UserInfo> > getUser(const std::string& name) const;
+    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo>> getFriendRequestListByUid(uint64_t uid);
 
 private:
     template<typename... Args>

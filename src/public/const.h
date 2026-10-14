@@ -8,8 +8,6 @@
 #ifndef GATESERVER_CONST_H
 #define GATESERVER_CONST_H
 
-#include <cstdint>
-
 enum ErrorCode
 {
     SUCCESS                            = 0,    // 成功
@@ -41,12 +39,14 @@ enum ErrorCode
 
 enum MessageType : std::uint16_t
 {
-    MESSAGE_CHAT_LOGIN_REQ = 1001,    // 登录请求
-    MESSAGE_CHAT_LOGIN_RSP,           // 登录回包
+    MESSAGE_CHAT_LOGIN_REQ = 1001,    //登录请求
+    MESSAGE_CHAT_LOGIN_RSP,           //登录回包
     MESSAGE_SEARCH_USER_REQ,          //用户搜索请求
     MESSAGE_SEARCH_USER_RSP,          //搜索用户回包
     MESSAGE_ADD_FRIEND_REQ,           //申请添加好友请求
     MESSAGE_ADD_FRIEND_RSP,           //申请添加好友回复
+    MESSAGE_SYNC_FRIEND_REQUEST_REQ,  //获取好友申请列表
+    MESSAGE_SYNC_FRIEND_REQUEST_RSP,  //获取好友申请列表回包
     MESSAGE_NOTIFY_ADD_FRIEND_REQ,    //通知用户添加好友申请
     MESSAGE_AUTH_FRIEND_REQ,          //认证好友请求
     MESSAGE_AUTH_FRIEND_RSP,          //认证好友回复

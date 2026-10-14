@@ -161,6 +161,13 @@ void LogicSystem::registerCallBacks()
             {
                 sendFriendRequestHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_SYNC_FRIEND_REQUEST_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                syncFriendRequestListHandler(session, message_data);
+            };
 }
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -378,6 +385,47 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
     return_value["add_friend_request_id"] = std::to_string(code);
     const auto user_self_info = SearchUserByUid(form_uid);
     (void) GrpcSendFriendRequestToOther(code, to_uid);
+}
+
+void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    Json::Reader reader;
+    Json::Value root;
+    reader.parse(message_data, root);
+
+    std::uint64_t uid{};
+    if (!uid_codec::ParseUid(root["uid"].asString(), uid))
+    {
+        spdlog::warn("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
+    }
+    spdlog::debug("[logic system] sync friend request list, uid: {}", uid);
+
+    Json::Value return_value;
+    Defer defer([this, &return_value, session]()
+        {
+            (void) this;
+            const std::string return_str = return_value.toStyledString();
+            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_SYNC_FRIEND_REQUEST_RSP);
+        });
+
+    std::vector<std::shared_ptr<ApplyInfo> > request_infos = MySqlManager::GetInstance().getFriendRequestListByUid(uid);
+
+    return_value["error"] = ErrorCode::SUCCESS;
+    return_value["count"] = std::to_string(request_infos.size());
+
+    for (const auto& info: request_infos)
+    {
+        Json::Value value;
+        value["id"] = std::to_string(info->add_friend_request_id);
+        value["from_uid"] = std::to_string(info->from_uid);
+        value["to_uid"] = std::to_string(info->to_uid);
+        value["name"] = info->name;
+        value["verify_info"] = info->desc;
+        value["icon"] = info->icon;
+        value["sex"] = info->sex;
+        value["state"] = info->status;
+        return_value["apply_infos"].append(value);
+    }
 }
 
 void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, const std::string& message_data)

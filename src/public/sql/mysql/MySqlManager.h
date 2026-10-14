@@ -59,6 +59,8 @@ public:
 
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(std::uint64_t uid) const;
     [[nodiscard]] std::vector<std::shared_ptr<UserInfo> > getUser(const std::string& name) const;
+    /// 获取关于此用户的好友申请消息列表
+    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo>> getFriendRequestListByUid(uint64_t uid);
 
 private:
     MySqlManager();

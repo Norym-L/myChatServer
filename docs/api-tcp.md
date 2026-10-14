@@ -134,3 +134,24 @@ MessageType::MESSAGE_NOTIFY_ADD_FRIEND_REQ
 
 - error ErrorCode
 - add_friend_request_id 好友申请编号
+
+### 3. 同步好友请求列表回包
+
+MessageType::MESSAGE_SYNC_FRIEND_REQUEST_RSP
+
+- error ErrorCode
+- count // 消息数量
+- apply_infos {
+    info_1 {
+        - id // 编号（字符串）
+        - from_uid // 发送方（字符串）
+        - to_uid // 接收方（字符串）
+        - name // 对方名称
+        - verify_info // 验证信息
+        - icon // 对方头像
+        - sex // 对方性别
+        - state // 接受状态
+    }
+    info_2,
+    ...
+}

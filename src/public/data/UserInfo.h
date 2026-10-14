@@ -36,19 +36,22 @@ struct UserInfo
 
 struct ApplyInfo
 {
-    ApplyInfo(std::string name, std::string desc, std::string nick, const std::uint64_t uid, const FriendApplyStatus status)
-        : name(std::move(name)),
-          desc(std::move(desc)),
-          nick(std::move(nick)),
-          uid(uid),
-          status(status)
+    explicit ApplyInfo(const std::uint64_t add_friend_request_id, const std::uint64_t from_uid, const std::uint64_t to_uid, std::string name, std::string desc, std::string icon,
+                       std::string nick, const Sex sex, const FriendApplyStatus status)
+        : add_friend_request_id(add_friend_request_id), from_uid(from_uid), to_uid(to_uid), name(std::move(name)), desc(std::move(desc)), icon(std::move(icon)), nick(std::move(nick)), sex(sex), status(status)
     {}
 
-    std::string name;
-    std::string desc; // 个性签名
-    std::string nick;
-    std::uint64_t uid;
-    FriendApplyStatus status;
+    void setIcon(const std::string& head) { icon = head; }
+
+    std::uint64_t add_friend_request_id;
+    std::uint64_t from_uid{};
+    std::uint64_t to_uid{};
+    std::string name{};
+    std::string desc{};
+    std::string icon{};
+    std::string nick{};
+    Sex sex{Sex::UNKNOWN};
+    FriendApplyStatus status{FriendApplyStatus::WAITING}; // 是否接受
 };
 
 

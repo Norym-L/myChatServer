@@ -35,6 +35,7 @@ private:
     void loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    void syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 获取好友列表，好友申请列表
     void getUserApplyListAndFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data);
 
