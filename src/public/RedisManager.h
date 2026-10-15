@@ -48,18 +48,18 @@ class RedisManager : public TSingLeton<RedisManager>
 public:
     ~RedisManager();
 
-    void insert(const std::shared_ptr<UserInfo>& user_info) const;
-    void insert(const std::vector<std::shared_ptr<UserInfo> >& user_infos) const;
+    void insert(const std::shared_ptr<UserInfo>& user_info, long ex = 500) const;
+    void insert(const std::vector<std::shared_ptr<UserInfo> >& user_infos, long ex = 500) const;
     /// 获取用户ip，用户不在线返回空字符串
     [[nodiscard]] std::string isUserOnLine(std::uint64_t uid) const;
 
     [[nodiscard]] bool get(const std::string& key, std::string& value) const;
-    [[nodiscard]] bool set(const std::string& key, const std::string& value) const;
+    [[nodiscard]] bool set(const std::string& key, const std::string& value, long ex = 500) const;
     [[nodiscard]] bool lPush(const std::string& key, const std::string& value) const;
     [[nodiscard]] bool lPop(const std::string& key, std::string& value) const;
     [[nodiscard]] bool rPush(const std::string& key, const std::string& value) const;
     [[nodiscard]] bool rPop(const std::string& key, std::string& value) const;
-    [[nodiscard]] bool hSet(const std::string& key, const std::string& h_key, const std::string& value) const;
+    [[nodiscard]] bool hSet(const std::string& key, const std::string& h_key, const std::string& value, long ex = 500) const;
     [[nodiscard]] bool hSet(const char* key, const char* h_key, const char* h_value, std::size_t h_value_len) const;
     [[nodiscard]] bool hDel(const std::string& key, const std::string& field) const;
     [[nodiscard]] std::string hGet(const std::string& key, const std::string& h_key) const;

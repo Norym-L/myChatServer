@@ -146,7 +146,7 @@ RedisManager::~RedisManager()
     close();
 }
 
-void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info) const
+void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info, const long ex) const
 {
     if (!user_info)
     {
@@ -161,13 +161,13 @@ void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info) const
     redis_root["icon"] = user_info->icon;
     redis_root["uid"] = user_info->uid;
     redis_root["sex"] = user_info->sex;
-    if (!set(USER_BASE_INFO + std::to_string(user_info->uid), redis_root.toStyledString()))
+    if (!set(USER_BASE_INFO + std::to_string(user_info->uid), redis_root.toStyledString(), ex))
     {
         spdlog::warn("[redis] redis insert user_info failed!");
     }
 }
 
-void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_infos) const
+void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_infos, const long ex) const
 {
     // 按用户名查不到用户时调用方会传入空列表：此时不应写缓存，
     // 更不能对空列表取 front()（Debug 构建下直接断言崩溃，Release 下是未定义行为）
@@ -185,7 +185,7 @@ void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_inf
         }
         redis_root["uids"].append(user_info->uid);
     }
-    if (!set(USER_BASE_INFO_BY_NAME + user_infos.front()->name, redis_root.toStyledString()))
+    if (!set(USER_BASE_INFO_BY_NAME + user_infos.front()->name, redis_root.toStyledString(), ex))
     {
         spdlog::warn("[redis] redis insert user_info failed!");
     }
@@ -230,14 +230,15 @@ bool RedisManager::get(const std::string& key, std::string& value) const
     return true;
 }
 
-bool RedisManager::set(const std::string& key, const std::string& value) const
+bool RedisManager::set(const std::string& key, const std::string& value, const long ex) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply*>(redisCommand(connect, "SET %s %s", key.c_str(), value.c_str()));
+    long safe_ex = (ex <= 0) ? 1 : ex; // 至少为 1 秒
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "SET %s %s EX %ld", key.c_str(), value.c_str(), ex));
 
     if (reply == nullptr)
     {
@@ -374,14 +375,14 @@ bool RedisManager::rPop(const std::string& key, std::string& value) const
     return true;
 }
 
-bool RedisManager::hSet(const std::string& key, const std::string& h_key, const std::string& value) const
+bool RedisManager::hSet(const std::string& key, const std::string& h_key, const std::string& value, const long ex) const
 {
     const auto connect = m_connectPool->getConnection();
     if (connect == nullptr)
     {
         return false;
     }
-    const auto reply = static_cast<redisReply*>(redisCommand(connect, "HSET %s %s %s", key.c_str(), h_key.c_str(), value.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "HSET %s %s %s EX %ld", key.c_str(), h_key.c_str(), value.c_str(), ex));
     if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER)
     {
         spdlog::debug("[RedisManager] redis Failed to Execut command [ HSET {} {} {} ]", key, h_key, value);

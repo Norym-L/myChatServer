@@ -313,21 +313,25 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     }
     // 继续找用户名
     auto infos = SearchUserByName(user_name_or_uid);
-    // TODO 多个结果返回, 暂时只返回第一个
-    for (const auto& info: infos)
+
+    if (infos.empty())
     {
-        return_value["error"] = ErrorCode::SUCCESS;
-        return_value["uid"] = std::to_string(info->uid); // uid 对外统一为字符串
-        return_value["user_name"] = info->name;
-        return_value["desc"] = info->desc;
-        return_value["sex"] = info->sex;
-        return_value["icon"] = info->icon;
+        // 都没找到
+        return_value["error"] = ErrorCode::USER_NOT_FOUND;
         return;
     }
 
-    // 都没找到
-    return_value["error"] = ErrorCode::USER_NOT_FOUND;
-    return_value["uid"] = "0";
+    return_value["error"] = ErrorCode::SUCCESS;
+    for (const auto& info: infos)
+    {
+        Json::Value info_value;
+        info_value["uid"] = std::to_string(info->uid); // uid 对外统一为字符串
+        info_value["user_name"] = info->name;
+        info_value["desc"] = info->desc;
+        info_value["sex"] = info->sex;
+        info_value["icon"] = info->icon;
+        return_value["infos"].append(info_value);
+    }
 }
 
 void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -384,7 +388,25 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["add_friend_request_id"] = std::to_string(code);
     const auto user_self_info = SearchUserByUid(form_uid);
-    (void) GrpcSendFriendRequestToOther(code, to_uid);
+    // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
+    const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
+    if (user_ip.empty())
+    {
+        return; // 对方不在线
+    }
+    if (user_ip == m_selfServerName)
+    {
+        // 在当前服务器
+        const auto session_other = UserManager::GetInstance().getSession(to_uid);
+        if (!session_other)
+        {
+            return;
+        }
+        session_other->sendAuthFriendRequest(code);
+        spdlog::debug("LogicSystem::sendFriendRequestHandler send friend request to {}, friend request id {}", to_uid, code);
+        return;
+    }
+    (void) GrpcSendFriendRequestToOther(code, to_uid, user_ip);
 }
 
 void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -413,7 +435,7 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["count"] = std::to_string(request_infos.size());
 
-    for (const auto& info: request_infos)
+     for (const auto& info: request_infos)
     {
         Json::Value value;
         value["id"] = std::to_string(info->add_friend_request_id);
@@ -433,14 +455,8 @@ void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&
     //TODO
 }
 
-bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid)
+bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid, const std::string& user_ip)
 {
-    // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
-    const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
-    if (user_ip.empty())
-    {
-        return false;
-    }
     AddFriendReq req;
     req.set_touid(to_uid);
     req.set_addfriendrequestid(add_friend_request_id);

@@ -39,11 +39,12 @@ private:
     // 获取好友列表，好友申请列表
     void getUserApplyListAndFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data);
 
-    [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid);
+    [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);
     [[nodiscard]] static std::shared_ptr<UserInfo> SearchUserByUid(uint64_t uid);
     [[nodiscard]] static std::vector<std::shared_ptr<UserInfo> > SearchUserByName(const std::string& name);
 
     std::mutex m_mutex;
+    std::string m_selfServerName;
     std::queue<std::shared_ptr<LogicNode> > m_messageQueue;
     std::condition_variable m_conditionVariable;
     std::thread m_workThread;
