@@ -16,6 +16,7 @@
 #include "grpc/ChatServiceImpl.h"
 #include "sql/mysql/MySqlManager.h"
 #include "utils/config.h"
+#include "utils/ServerRegistry.h"
 
 int main(int argc, char* argv[])
 {
@@ -67,9 +68,17 @@ int main(int argc, char* argv[])
 
         spdlog::info("[{}] starting as {}, listen on port: {}", self_section, name, port);
         CServer server(io_context, port, name);
+
+        // 向 Redis 注册本实例存活与负载信息：serverlist 记录地址，
+        // serverheartbeat_<name> / logincount_<name> 带 30s TTL，由后台线程续期
+        ServerRegistry::GetInstance().start(name, config[name]["host"] + ":" + config[name]["port"]);
+        spdlog::info("[{}] registered to redis, heartbeat key: {}", self_section,
+                     SERVER_HEARTBEAT_PREFIX + name);
+
         io_context.run();
 
-        (void)RedisManager::GetInstance().hDel(LOGIN_COUNT, name);
+        // 优雅退出：先摘除注册记录（存活 key / 连接数 key / 服务列表字段），再关连接池
+        ServerRegistry::GetInstance().stop();
         RedisManager::GetInstance().close();
         grpc_server_thread.join();
     }

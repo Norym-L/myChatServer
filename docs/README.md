@@ -16,7 +16,7 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 | 依赖 | 默认地址 | 用途 |
 |------|---------|------|
 | MySQL | `127.0.0.1:3308`，库名 `chatserver` | 用户注册、密码校验、用户信息查询 |
-| Redis | `127.0.0.1:6380` | 存放邮箱验证码，key 前缀 `code_` |
+| Redis | `127.0.0.1:6380` | 验证码、登录 token、用户在线状态、聊天服注册与连接数（键位见 [1.2 Redis 键位](#12-redis-键位)） |
 
 ### 1.1 配置与启动
 
@@ -35,6 +35,22 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 - 路径为相对路径时按**进程当前工作目录**解析；配置文件不存在时进程记录错误并以非 0 退出。
 - `chat1.ini` / `chat2.ini` 中必须**恰好有一个** `[ChatServerN]` 段，进程据此确定自身身份；0 个或多于 1 个都会启动失败。
 - `status.ini` 里需要保留**全部** ChatServer 的 `host`/`port`/`name`，否则无法分发。
+
+### 1.2 Redis 键位
+
+| 键 | 类型 | TTL | 写入方 | 用途 |
+|----|------|-----|--------|------|
+| `code_<email>` | string | 由 VerifyServer 决定 | VerifyServer | 邮箱验证码 |
+| `utoken_<uid>` | string | 30s | StatusServer | 登录 token；ChatServer 登录帧校验用 |
+| `uip_<uid>` | string | 30s | ChatServer | 用户在线所在实例名；客户端心跳（`1016`）续期，过期即视为离线 |
+| `ubaseinfo_<uid>` | string(JSON) | 500s | ChatServer | 用户基础信息缓存 |
+| `ubaseinfo_name_<name>` | string(JSON) | 500s | ChatServer | 用户名 → uid 列表缓存 |
+| `serverlist` | hash | 无 | ChatServer | 字段为实例名，值为 `host:port`（服务列表） |
+| `serverheartbeat_<name>` | string | 30s | ChatServer | 实例存活标记 |
+| `logincount_<name>` | string | 30s | ChatServer | 实例当前连接数 |
+
+- 后 4 个键由 ChatServer 启动时写入，并由后台线程每 **10s** 续期一次；进程退出时立即摘除，崩溃时 30s 内自动过期。
+- StatusServer 分发 ChatServer 时只考虑「`serverlist` 中存在该实例 **且** `serverheartbeat_<name>` 未过期」的实例，连接数取 `logincount_<name>`（缺失按 `0`）；若没有任何存活实例（全新部署 / Redis 被清空），回落为全部配置实例并记录告警。
 
 ## 2. 文档索引
 

@@ -55,10 +55,11 @@ message GetChatServerRsp {
 
 **服务方行为（StatusServer）**
 
-- 采用**最少连接数**策略从 `[ChatServer1]`、`[ChatServer2]` 中挑选一台（按 `connection_count` 比较）。
-- 生成 UUID 作为 token，并以 `uid → token` 覆盖写入内存表（同一 uid 重复登录会使旧 token 失效）。
-- ⚠️ **当前限制**：`connection_count` 只增不减，且仅保存在进程内存中（未落 Redis），因此多实例部署时分配不均衡；StatusServer 重启后计数归零。
-- 启动时会校验 `[ChatServer1]`、`[ChatServer2]` 的 `host` / `port` / `name` 是否完整，缺失则拒绝启动。
+- 采用**最少连接数**策略从配置的 ChatServer 中挑选一台，候选与计数均来自 Redis：
+  - **候选集**：优先只考虑存活实例——`serverlist`（hash）中存在该实例名，**且** `serverheartbeat_<name>` 未过期；若没有任何存活实例（全新部署 / Redis 被清空 / 实例尚未完成注册），回落为全部配置实例并记录告警，避免 `/user_login` 整体失败。
+  - **连接数**：取 `logincount_<name>`（由实例自身维护、带 30s TTL、随心跳续期），缺失按 `0` 处理。
+- 生成 UUID 作为 token，并以 `uid → token` 覆盖写入 Redis（`utoken_<uid>`，同一 uid 重复登录会使旧 token 失效）。
+- 启动时会校验 ChatServer 的 `host` / `port` / `name` 是否完整，缺失则拒绝启动。
 
 ## 4. StatusService.Login
 

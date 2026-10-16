@@ -29,6 +29,7 @@ void UserManager::setUserSession(const std::uint64_t uid, std::shared_ptr<CSessi
 
 void UserManager::removeUserSession(const std::uint64_t uid)
 {
+    // TODO 更新redis中的服务器人数
     const auto uid_str = std::to_string(uid);
     // 可能在本服务器找不到key
     {

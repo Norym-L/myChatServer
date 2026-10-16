@@ -33,9 +33,12 @@ private:
 
     void registerCallBacks();
     void loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    // 心跳续期：刷新在线状态 key 的过期时间
+    void heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    void checkIsUserOnlineHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 获取好友列表，好友申请列表
     void getUserApplyListAndFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data);
 

@@ -10,6 +10,7 @@
 #include <utils/UidCodec.h>
 
 #include "utils/config.h"
+#include "utils/ServerRegistry.h"
 #include "RedisManager.h"
 #include "data/UserManager.h"
 #include "grpc/ChatGrpcClient.h"
@@ -83,7 +84,7 @@ std::shared_ptr<UserInfo> LogicSystem::GetBaseInfo(const std::string& base_key, 
         root["desc"] = user_info->desc;
         root["icon"] = user_info->icon;
         root["uid"] = user_info->uid;
-        if (!RedisManager::GetInstance().set(base_key, root.toStyledString()))
+        if (!RedisManager::GetInstance().set(base_key, root.toStyledString(), 500))
         {
             spdlog::warn("[logic][LogicSystem::getBaseInfo] Redis insert error!");
         }
@@ -169,6 +170,20 @@ void LogicSystem::registerCallBacks()
             {
                 syncFriendRequestListHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_HEART_BEAT_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                heartbeatHandler(session, message_data);
+            };
+
+    m_callbackFunctions[MessageType::MESSAGE_CHECK_IS_USER_ONLINE_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                checkIsUserOnlineHandler(session, message_data);
+            };
 }
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -247,18 +262,11 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     // 从数据库获取好友列表和好友申请列表
     // TODO
 
-    // 增加登录数量
-    static const auto SELF_NAME = ResolveSelfSection(ConfigManager::GetInstance());
-    auto res = RedisManager::GetInstance().hGet(LOGIN_COUNT, SELF_NAME);
-    std::uint64_t count{0};
-    if (!res.empty())
+    // 本实例连接数 +1：由 ServerRegistry 统一维护并写入 Redis（logincount_<name>，随心跳续期）。
+    // 同一 session 重复登录不重复计数，避免断开时只减一次导致计数只增不减
+    if (session->getUserId() == 0)
     {
-        std::from_chars(res.c_str(), res.c_str() + res.length(), count);
-    }
-    ++count;
-    if (!RedisManager::GetInstance().hSet(LOGIN_COUNT, SELF_NAME, std::to_string(count)))
-    {
-        spdlog::warn("[logic][LogicSystem::loginHandler] Redis insert error!");
+        ServerRegistry::GetInstance().addConnection();
     }
 
     // 绑定用户session
@@ -266,13 +274,44 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
 
     // 设置用户登录的服务器
     const auto ip_key = USER_IP_PERFIX + uid_str;
-    if (!RedisManager::GetInstance().set(ip_key, SELF_NAME))
+    if (!RedisManager::GetInstance().set(ip_key, m_selfServerName))
     {
         spdlog::warn("[logic][LogicSystem::loginHandler] Redis insert error!");
     }
 
     // 绑定uid和session，实现踢人操作
     UserManager::GetInstance().setUserSession(uid, session);
+}
+
+void LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& /*message_data*/) const
+{
+    Json::Value return_value;
+    Defer defer([this, &return_value, session]()
+        {
+            (void) this;
+            const std::string return_str = return_value.toStyledString();
+            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_HEART_BEAT_RSP);
+        });
+
+    const std::uint64_t uid = session->getUserId();
+    if (uid == 0)
+    {
+        // 未登录（尚未绑定 uid）的 session 不允许续期，避免为匿名连接刷新在线状态
+        spdlog::warn("[logic system] heartbeat before login, session: {}", session->getSessionId());
+        return_value["error"] = ErrorCode::USER_UID_INVALID;
+        return;
+    }
+
+    // 续期在线状态 key：30 秒内没有再收到心跳，key 自动过期，isUserOnLine 即判定用户离线
+    const auto ip_key = USER_IP_PERFIX + std::to_string(uid);
+    if (!RedisManager::GetInstance().set(ip_key, m_selfServerName, HEART_BEAT_EXPIRE_SECONDS))
+    {
+        spdlog::warn("[logic][LogicSystem::heartbeatHandler] Redis insert error, uid: {}", uid);
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        return;
+    }
+
+    return_value["error"] = ErrorCode::SUCCESS;
 }
 
 void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -417,13 +456,6 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
     Json::Value root;
     reader.parse(message_data, root);
 
-    std::uint64_t uid{};
-    if (!uid_codec::ParseUid(root["uid"].asString(), uid))
-    {
-        spdlog::warn("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
-    }
-    spdlog::debug("[logic system] sync friend request list, uid: {}", uid);
-
     Json::Value return_value;
     Defer defer([this, &return_value, session]()
         {
@@ -432,12 +464,21 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
             session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_SYNC_FRIEND_REQUEST_RSP);
         });
 
+    std::uint64_t uid{};
+    if (!uid_codec::ParseUid(root["uid"].asString(), uid))
+    {
+        spdlog::warn("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        return;
+    }
+    spdlog::debug("[logic system] sync friend request list, uid: {}", uid);
+
     std::vector<std::shared_ptr<ApplyInfo> > request_infos = MySqlManager::GetInstance().getFriendRequestListByUid(uid);
 
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["count"] = std::to_string(request_infos.size());
 
-     for (const auto& info: request_infos)
+    for (const auto& info: request_infos)
     {
         Json::Value value;
         value["id"] = std::to_string(info->add_friend_request_id);
@@ -450,6 +491,36 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
         value["state"] = info->status;
         return_value["apply_infos"].append(value);
     }
+}
+
+void LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    Json::Reader reader;
+    Json::Value root;
+    reader.parse(message_data, root);
+
+    Json::Value return_value;
+    Defer defer([this, &return_value, session]()
+        {
+            (void) this;
+            const std::string return_str = return_value.toStyledString();
+            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHECK_IS_USER_ONLINE_RSP);
+        });
+
+    std::uint64_t uid{};
+    if (!uid_codec::ParseUid(root["uid"].asString(), uid))
+    {
+        spdlog::warn("[logic system] check user online request, parse uid failed, str is {}", root["uid"].asString());
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        return;
+    }
+    spdlog::debug("[logic system] check user online request, check the uid {}", uid);
+
+    const auto ip_key = USER_IP_PERFIX + std::to_string(uid);
+    std::string value;
+    const auto isOnline = RedisManager::GetInstance().get(ip_key, value);
+    return_value["error"] = ErrorCode::SUCCESS;
+    return_value["online"] = isOnline ? "online" : "offline";
 }
 
 void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, const std::string& message_data)

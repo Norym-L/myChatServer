@@ -237,8 +237,8 @@ bool RedisManager::set(const std::string& key, const std::string& value, const l
     {
         return false;
     }
-    long safe_ex = (ex <= 0) ? 1 : ex; // 至少为 1 秒
-    const auto reply = static_cast<redisReply*>(redisCommand(connect, "SET %s %s EX %ld", key.c_str(), value.c_str(), ex));
+    const long safe_ex = (ex <= 0) ? 1 : ex; // 至少为 1 秒
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "SET %s %s EX %ld", key.c_str(), value.c_str(), safe_ex));
 
     if (reply == nullptr)
     {
@@ -375,26 +375,11 @@ bool RedisManager::rPop(const std::string& key, std::string& value) const
     return true;
 }
 
-bool RedisManager::hSet(const std::string& key, const std::string& h_key, const std::string& value, const long ex) const
+bool RedisManager::hSet(const std::string& key, const std::string& h_key, const std::string& value) const
 {
-    const auto connect = m_connectPool->getConnection();
-    if (connect == nullptr)
-    {
-        return false;
-    }
-    const auto reply = static_cast<redisReply*>(redisCommand(connect, "HSET %s %s %s EX %ld", key.c_str(), h_key.c_str(), value.c_str(), ex));
-    if (reply == nullptr || reply->type != REDIS_REPLY_INTEGER)
-    {
-        spdlog::debug("[RedisManager] redis Failed to Execut command [ HSET {} {} {} ]", key, h_key, value);
-        m_connectPool->returnConnection(connect);
-        freeReplyObject(reply);
-        return false;
-    }
-
-    spdlog::debug("[RedisManager] redis Succeed to Execut command [ HSET {} {} {} ]", key, h_key, value);
-    m_connectPool->returnConnection(connect);
-    freeReplyObject(reply);
-    return true;
+    // HSET 不支持 EX（那是 SET 的语法）：此前拼出的 "HSET k f v EX n" 会被 Redis 判为语法错误而恒失败。
+    // 这里复用 argv 版本：既能正确执行，也避免字段值含空格等字符时被命令拼接破坏。
+    return hSet(key.c_str(), h_key.c_str(), value.c_str(), value.size());
 }
 
 bool RedisManager::hSet(const char* key, const char* h_key, const char* h_value, const std::size_t h_value_len) const
@@ -429,6 +414,37 @@ bool RedisManager::hSet(const char* key, const char* h_key, const char* h_value,
     m_connectPool->returnConnection(connect);
     freeReplyObject(reply);
     return true;
+}
+
+// 刷新 key 的 TTL，用于心跳续期。extendSeconds 为新的存活时长
+bool RedisManager::expire(const std::string& key, const long extendSeconds) const
+{
+    const auto connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    const long safe_ex = (extendSeconds <= 0) ? 1 : extendSeconds;
+    const auto reply = static_cast<redisReply*>(
+        redisCommand(connect, "EXPIRE %s %ld", key.c_str(), safe_ex));
+
+    if (reply == nullptr)
+    {
+        spdlog::debug("[RedisManager] redis Failed to execute command [ EXPIRE {} {} ]",
+                      key, safe_ex);
+        m_connectPool->recycleBadConnection(connect);
+        return false;
+    }
+
+    // EXPIRE 返回 1=设置成功，0=key 不存在
+    const bool ok = (reply->type == REDIS_REPLY_INTEGER && reply->integer == 1);
+    freeReplyObject(reply);
+    m_connectPool->returnConnection(connect);
+
+    spdlog::debug("[RedisManager] redis {} to execute command [ EXPIRE {} {} ]",
+                  ok ? "Succeed" : "Failed", key, safe_ex);
+    return ok;
 }
 
 bool RedisManager::hDel(const std::string& key, const std::string& field) const

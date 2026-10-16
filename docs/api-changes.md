@@ -1,5 +1,37 @@
 # 接口变更记录
 
+## 2026-10-17（基线 `1387b28`）
+
+本次为聊天服心跳与实例注册能力，同时修掉一个 Redis 写入缺陷。
+
+### 1. 新增能力
+
+| 编号 | 内容 |
+|------|------|
+| N1 | **TCP 心跳**：新增 `MESSAGE_HEART_BEAT_REQ`（`1016`）/ `MESSAGE_HEART_BEAT_RSP`（`1017`），客户端周期发送，服务端据此续期在线 key `uip_<uid>`（EX 30s） |
+| N2 | **实例自注册**：ChatServer 启动时向 Redis 写入 hash `serverlist`（`name → host:port`）、存活 key `serverheartbeat_<name>`（EX 30s）、连接数 key `logincount_<name>`（EX 30s），后台线程每 10s 续期；退出时摘除 |
+| N3 | **存活过滤分发**：StatusServer 分发时只考虑「`serverlist` 中存在该实例 **且** `serverheartbeat_<name>` 未过期」的实例，连接数取 `logincount_<name>`；若没有存活实例则回落为全部配置实例并告警 |
+
+### 2. 行为变更（可能影响既有客户端 / 运维）
+
+| 编号 | 接口 | 变更 |
+|------|------|------|
+| C1 | TCP 登录消息编号 | **文档修正**：登录请求 `1001`、登录回包 `1002`（历史文档写作 `0` / `1`，与 `const.h` 的 `enum MessageType` 不符；线格式未变） |
+| C2 | ChatServer 连接数 | 由「共享 hash `logincount_`，仅登录 +1、无 TTL、仅优雅退出时清理」改为「每实例独立 key `logincount_<name>`，EX 30s、登录 +1 / 断开 -1、随心跳续期」 |
+| C3 | 用户在线判定 | `uip_<uid>` 由「登录时写一次」改为「登录写入 + 客户端心跳续期」，30s 无心跳即判离线（他人加好友时不再尝试投递） |
+
+### 3. 缺陷修复
+
+| 编号 | 内容 |
+|------|------|
+| F1 | `RedisManager::hSet(key, field, value, ex)` 会拼出 `HSET ... EX <n>`（Redis 的 `HSET` 不支持 `EX`），恒返回失败；已移除 `ex` 参数并复用正确的 argv 版 `HSET`。此前 `logincount` 的写入始终失败 |
+
+### 4. 未变动的部分
+
+- `proto/message.proto` 未修改。
+- TCP 帧头格式（`[message_id:2][body_len:2][body]`）与消息大小上限未变。
+- HTTP 接口与 `enum ErrorCode` 的取值未变（[`error-codes.md`](error-codes.md) 仅补齐了此前遗漏的 `1015` / `1016` / `1018` / `1019` 条目）。
+
 ## 2026-09-22（commit `6785e4b`，基线 `4f49d1f`）
 
 本次为代码审查后的缺陷修复批次，共涉及 **30+ 项**修复。其中影响对外接口契约的部分如下。

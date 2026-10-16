@@ -21,6 +21,13 @@
 | `1012` | `USER_TOKEN_INVALID` | token 非法或已失效 | StatusServer `Login`、TCP 登录响应 |
 | `1013` | `SERVICE_UNAVAILABLE` | **依赖服务不可用**（数据库/Redis 连接池超时或不可达） | `/user_login`、`/reset_password` |
 | `1014` | `USER_NOT_FOUND` | 客户端查询的用户不存在 | `chatserver LogicSystem::searchUserHandler` |
+| `1015` | `CAN_NOT_ADD_YOURSELF_AS_A_FRIEND` | 不能把自己作为添加好友的对象 | TCP 添加好友响应 |
+| `1016` | `USER_IS_YOUR_FRIEND_BEFOR` | 添加对象已经是好友 | TCP 添加好友响应 |
+| `1017` | —— | **未定义**（编号留空，`enum ErrorCode` 中不存在） | —— |
+| `1018` | `CHACK_YOUR_RECEIVED_FRIEND_REQUEST` | 对方已向你发起过申请，请检查好友申请列表 | TCP 添加好友响应 |
+| `1019` | `USER_OUTLINE` | 目标用户离线（本实例无该用户会话） | gRPC `ChatService.NotifyAddFriend` |
+
+> `enum MessageType` 的 TCP 消息编号（`1001`–`1017`）与这里的 `ErrorCode` 是**两套独立枚举**，数值相同不代表同一含义。
 
 ## 2. 本次变更
 

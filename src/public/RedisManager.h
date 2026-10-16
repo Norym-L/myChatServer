@@ -54,13 +54,15 @@ public:
     [[nodiscard]] std::string isUserOnLine(std::uint64_t uid) const;
 
     [[nodiscard]] bool get(const std::string& key, std::string& value) const;
-    [[nodiscard]] bool set(const std::string& key, const std::string& value, long ex = 500) const;
+    [[nodiscard]] bool set(const std::string& key, const std::string& value, long ex = 30) const;
     [[nodiscard]] bool lPush(const std::string& key, const std::string& value) const;
     [[nodiscard]] bool lPop(const std::string& key, std::string& value) const;
     [[nodiscard]] bool rPush(const std::string& key, const std::string& value) const;
     [[nodiscard]] bool rPop(const std::string& key, std::string& value) const;
-    [[nodiscard]] bool hSet(const std::string& key, const std::string& h_key, const std::string& value, long ex = 500) const;
+    /// 写 hash 字段；hash 字段不支持 TTL（HSET 无 EX 语法），故不提供 ex 参数
+    [[nodiscard]] bool hSet(const std::string& key, const std::string& h_key, const std::string& value) const;
     [[nodiscard]] bool hSet(const char* key, const char* h_key, const char* h_value, std::size_t h_value_len) const;
+    [[nodiscard]] bool expire(const std::string& key, long extendSeconds) const;
     [[nodiscard]] bool hDel(const std::string& key, const std::string& field) const;
     [[nodiscard]] std::string hGet(const std::string& key, const std::string& h_key) const;
     [[nodiscard]] bool del(const std::string& key) const;

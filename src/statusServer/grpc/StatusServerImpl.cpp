@@ -48,23 +48,48 @@ ChatServer StatusServerImpl::getChatServer()
 {
     std::lock_guard<std::mutex> lock(m_serverMutex);
 
-    const ChatServer *min_server = nullptr;
+    // 候选集优先取「已注册且存活」的实例：
+    //  - serverlist hash 存在该 name      -> 实例已向 Redis 注册（长期保存）
+    //  - serverheartbeat_<name> 未过期     -> 实例当前存活（30s TTL，由实例自身续期）
+    std::vector<ChatServer*> candidates;
+    candidates.reserve(m_servers.size());
     for (auto& server: m_servers | std::views::values)
     {
-        // 计数器缺失（全新 Redis、或该实例还没有用户登录过）视为 0：
-        // 之前把它当作 ~0ull 会导致新部署时全部实例都被判为不可用而直接抛错，
-        // /user_login 永远拿不到聊天服务器
-        const auto count_str = RedisManager::GetInstance().hGet(LOGIN_COUNT, server.name);
+        const bool registered = !RedisManager::GetInstance().hGet(SERVER_LIST, server.name).empty();
+        if (registered && RedisManager::GetInstance().existsKey(SERVER_HEARTBEAT_PREFIX + server.name))
+        {
+            candidates.push_back(&server);
+        }
+    }
+
+    // 没有任何存活实例（全新部署、Redis 被清空、或实例尚未完成注册）时回落全量，
+    // 否则 /user_login 会因为分发不出聊天服而整体失败
+    if (candidates.empty())
+    {
+        spdlog::warn("[status server] no alive chat server registered in redis, fallback to all configured servers");
+        for (auto& server: m_servers | std::views::values)
+        {
+            candidates.push_back(&server);
+        }
+    }
+
+    const ChatServer* min_server = nullptr;
+    for (ChatServer* server: candidates)
+    {
+        // 计数器缺失（全新 Redis、实例重启、或该实例还没有人登录）视为 0：
+        // logincount_<name> 带 30s TTL 且由实例自身续期，实例死掉后自动消失，不会残留脏计数
+        std::string count_str;
+        (void) RedisManager::GetInstance().get(LOGIN_COUNT_PREFIX + server->name, count_str);
         std::uint64_t count = 0;
         if (!count_str.empty())
         {
             std::from_chars(count_str.data(), count_str.data() + count_str.size(), count);
         }
-        server.connection_count = count;
+        server->connection_count = count;
 
-        if (min_server == nullptr || server.connection_count < min_server->connection_count)
+        if (min_server == nullptr || server->connection_count < min_server->connection_count)
         {
-            min_server = &server;
+            min_server = server;
         }
     }
 

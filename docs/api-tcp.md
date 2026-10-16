@@ -26,10 +26,14 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 
 | message_id | 名称 | 方向 | body |
 | ----------- | ------ | ------ | ------ |
-| `0` | `MESSAGE_CHAT_LOGIN` | 客户端 → 服务端 | JSON `{ "uid": "<string>", "token": <string> }` |
-| `1` | `MESSAGE_CHAT_LOGIN_RESP` | 服务端 → 客户端 | JSON，见下表 |
+| `1001` | `MESSAGE_CHAT_LOGIN_REQ` | 客户端 → 服务端 | JSON `{ "uid": "<string>", "token": <string> }`，见 2.1 |
+| `1002` | `MESSAGE_CHAT_LOGIN_RSP` | 服务端 → 客户端 | JSON，见 2.2 |
+| `1016` | `MESSAGE_HEART_BEAT_REQ` | 客户端 → 服务端 | 心跳，body 可为空 `{}`，见 2.3 |
+| `1017` | `MESSAGE_HEART_BEAT_RSP` | 服务端 → 客户端 | JSON `{ "error": <int> }`，见 2.3 |
 
-### 2.1 MESSAGE_CHAT_LOGIN（0）
+> **编号说明**：所有 `message_id` 与 `src/public/const.h` 的 `enum MessageType` 一一对应，从 `1001` 起递增。历史版本文档曾把登录写成 `0` / `1`，与实现不符，本版按实现修正（登录请求 `1001`、登录回包 `1002`）。搜索 / 好友相关编号见 [§6](#6-实现的接口)。
+
+### 2.1 MESSAGE_CHAT_LOGIN_REQ（1001）
 
 ```json
 { "uid": "10001", "token": "1f0c9d3a-...." }
@@ -39,7 +43,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 - 非字符串、空串或含非数字字符的 `uid` → 直接回 `1011`（不查询 Redis / MySQL）。
 - 服务端将 `uid` 与 `token` 提交给 StatusServer 的 `StatusService.Login` 校验。
 
-### 2.2 MESSAGE_CHAT_LOGIN_RESP（1）
+### 2.2 MESSAGE_CHAT_LOGIN_RSP（1002）
 
 **成功**
 
@@ -65,16 +69,34 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 
 > 响应体由 JsonCpp 以 `toStyledString()` 序列化，是**带缩进的多行 JSON**；非 ASCII 字符可能以 `\uXXXX` 形式转义，客户端应按标准 JSON 解析而非按字节匹配。
 
+### 2.3 MESSAGE_HEART_BEAT_REQ / RSP（1016 / 1017）
+
+客户端登录后需**周期性发送心跳**（建议间隔 ≤15s）；服务端收到后把该用户在线 key `uip_<uid>` 的 TTL 续期为 **30s**。超过 30s 未续期，key 过期，该用户即被视为离线（他人申请加好友时不会再尝试投递）。
+
+**请求（1016）**：body 可为空 JSON `{}`，内容不参与处理。会话尚未完成登录（未绑定 uid）时发送 → 回 `1011`。
+
+**响应（1017）**
+
+```json
+{ "error": 0 }
+```
+
+| error | 含义 |
+| ------- | ------ |
+| `0` | 续期成功 |
+| `1011` | 会话尚未登录（未绑定 uid），不允许续期 |
+| `1013` | Redis 不可用，续期失败 |
+
 ## 3. 会话行为与限制
 
 | 项 | 行为 |
 | ---- | ------ |
-| 读超时 | **无**（不完整报文会一直等待，未实现心跳/空闲回收） |
+| 读超时 | **无**（不完整报文会一直等待；已支持 `1016` 心跳续期在线状态，但尚未基于心跳做空闲回收 / 主动断开） |
 | 头部校验 | `message_id > MAX_LENGTH` 或 `body_len > MAX_LENGTH` → 关闭会话 |
 | 未知 message_id | 记录告警并丢弃该消息，不断开连接 |
 | 发送队列 | 阈值 4；队列积压超过阈值说明对端不取数据 → **关闭会话**（不再静默丢包） |
 | 写失败 | 丢弃剩余队列并关闭 socket，避免继续向坏连接投递 |
-| 断开清理 | 读/写错误 → 关闭 socket 并从会话表移除 |
+| 断开清理 | 读/写错误 → 关闭 socket、从会话表移除；已登录会话同时把本实例连接数 `-1` |
 | 消息大小 | 单帧 body ≤ 2048 字节 |
 
 ## 4. 交互示例（登录）
@@ -84,15 +106,15 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
    |                                                            |
    |  connect 127.0.0.1:8090                                    |
    |----------------------------------------------------------->|
-   |  [00 00][00 23]{"uid":"10001","token":"1f0c...e9"}         |
+   |  [03 E9][00 23]{"uid":"10001","token":"1f0c...e9"}         |
    |----------------------------------------------------------->|
    |                                        StatusService.Login |
    |                                           （校验 uid+token） |
-   |  [00 01][00 14]{"error":0,"uid":10001,...}                 |
+   |  [03 EA][00 14]{"error":0,"uid":10001,...}                 |
    |<-----------------------------------------------------------|
 ```
 
-帧头说明：`00 00` = message_id 0；`00 23` = body 长度 35 字节（十进制）。
+帧头说明：`03 E9` = message_id `1001`（`0x03E9`）；`00 23` = body 长度 35 字节（十进制）。
 
 Python 参考实现：
 
@@ -100,7 +122,7 @@ Python 参考实现：
 import json, socket, struct
 
 payload = json.dumps({"uid": "10001", "token": "1f0c...e9"}).encode()
-frame = struct.pack(">hh", 0, len(payload)) + payload   # message_id=0 (LOGIN)
+frame = struct.pack(">HH", 1001, len(payload)) + payload   # message_id=1001 (LOGIN_REQ)
 
 s = socket.create_connection(("127.0.0.1", 8090), timeout=10)
 s.sendall(frame)
@@ -115,11 +137,11 @@ print(message_id, json.loads(body.decode()))
 
 ## 5. 已知限制（后续规划）
 
-- 未实现心跳/空闲超时，粘性连接会长期占用会话；
-- 仅支持登录消息，尚无聊天转发/群组等业务消息类型；
+- 已实现 `1016` 心跳用于**在线状态续期**，但尚未基于心跳做**空闲超时回收**（长时间无心跳不会主动断开连接）；
+- 已实现登录、用户搜索、好友申请/同步与心跳，尚无文本聊天转发、群组等业务消息类型；
 - 明文传输（未启用 TLS），且无消息级鉴权（登录成功后不再校验后续帧）。
 
-## 5. 实现的接口
+## 6. 实现的接口
 
 ### 1. 发送好友申请回包
 

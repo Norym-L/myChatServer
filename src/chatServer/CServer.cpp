@@ -7,6 +7,7 @@
 #include <AsioIOServicePool.h>
 
 #include "data/UserManager.h"
+#include "utils/ServerRegistry.h"
 
 CServer::CServer(boost::asio::io_context& io_context, const std::uint16_t port, std::string server_name)
     : m_ioContext(io_context), m_port(port), m_acceptor(io_context, tcp::endpoint(tcp::v4(), port)), m_name(std::move(server_name))
@@ -37,6 +38,8 @@ void CServer::clearSession(const std::string& session_id)
     session.reset();
     if (user_id > 0)
     {
+        // 已登录会话断开：连接数 -1（会话已被移出 m_sessions，重复 clearSession 不会再次命中，正好抵消登录时的 +1）
+        ServerRegistry::GetInstance().removeConnection();
         UserManager::GetInstance().removeUserSession(user_id);
     }
 }
