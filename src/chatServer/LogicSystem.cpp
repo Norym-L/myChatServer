@@ -20,6 +20,7 @@ LogicSystem::LogicSystem()
     : m_beStop(false)
 {
     RedisManager::GetInstance();
+    m_selfServerName = ResolveSelfSection(ConfigManager::GetInstance());
     registerCallBacks();
     m_workThread = std::thread(&LogicSystem::dealMessage, this);
 }
@@ -359,7 +360,8 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
             session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_ADD_FRIEND_RSP);
         });
 
-    const auto code = MySqlManager::GetInstance().sendFriendRequest(form_uid, to_uid, verify_info, remark);
+    std::uint64_t add_frined_request_id{};
+    const auto code = MySqlManager::GetInstance().sendFriendRequest(add_frined_request_id, form_uid, to_uid, verify_info, remark);
     if (code < 0) // 异常处理
     {
         if (code == -1 || code == -2) // 这里拦截用户不存在
@@ -386,7 +388,7 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
         return;
     }
     return_value["error"] = ErrorCode::SUCCESS;
-    return_value["add_friend_request_id"] = std::to_string(code);
+    return_value["add_friend_request_id"] = std::to_string(add_frined_request_id);
     const auto user_self_info = SearchUserByUid(form_uid);
     // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
     const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
@@ -402,11 +404,11 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
         {
             return;
         }
-        session_other->sendAuthFriendRequest(code);
-        spdlog::debug("LogicSystem::sendFriendRequestHandler send friend request to {}, friend request id {}", to_uid, code);
+        session_other->sendAuthFriendRequest(add_frined_request_id);
+        spdlog::debug("LogicSystem::sendFriendRequestHandler send friend request to {}, friend request id {}", to_uid, add_frined_request_id);
         return;
     }
-    (void) GrpcSendFriendRequestToOther(code, to_uid, user_ip);
+    (void) GrpcSendFriendRequestToOther(add_frined_request_id, to_uid, user_ip);
 }
 
 void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const

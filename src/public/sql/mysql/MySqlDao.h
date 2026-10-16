@@ -94,13 +94,14 @@ public:
     [[nodiscard]] int registerUser(const std::string& email, const std::string& name, const std::string& password) const;
     /**
      * 发送好友请求
+     * @param add_friend_request_id 接收返回的好友请求编号
      * @param applicant_uid 发送请求用户id
      * @param receiver_uid 接收请求用户id
      * @param verify_message 验证信息
      * @param remark 用户给对方的备注
-     * @return 申请成功返回请求编号， -1 申请人不存在 -2 接收人不存在 -3 不能添加自己 -4 已经是好友 -5 对方已申请你，请直接同意 -10 代表数据库异常
+     * @return 0 申请成功， -1 申请人不存在 -2 接收人不存在 -3 不能添加自己 -4 已经是好友 -5 对方已申请你，请直接同意 -10 代表数据库异常
      */
-    [[nodiscard]] std::uint64_t sendFriendRequest(std::uint64_t applicant_uid, std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const;
+    [[nodiscard]] int sendFriendRequest(std::uint64_t& add_friend_request_id, std::uint64_t applicant_uid, std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const;
 
     /**
      * 处理好友请求
@@ -134,7 +135,7 @@ public:
     [[nodiscard]] MatchResult checkIsPasswordMatchAccount(const std::string& password, std::uint64_t account) const;
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(std::uint64_t uid) const;
     [[nodiscard]] std::vector<std::shared_ptr<UserInfo> > getUser(const std::string& name) const;
-    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo>> getFriendRequestListByUid(uint64_t uid);
+    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo> > getFriendRequestListByUid(uint64_t uid);
 
 private:
     template<typename... Args>
@@ -163,6 +164,59 @@ private:
                 int ret_code = static_cast<int>(out_result.rows().at(0).at(0).as_int64());
                 spdlog::info("[MySqlDao] SP return code: {}", ret_code);
                 return ret_code;
+            }
+            return -11;
+        }
+        catch (const mysql::error_with_diagnostics& e)
+        {
+            spdlog::error("[MySqlDao] MySQL error: {}", e.what());
+            spdlog::error("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
+        }
+        catch (const std::exception& e)
+        {
+            spdlog::error("[MySqlDao] Error: {}", e.what());
+        }
+
+        if (connection)
+        {
+            m_pool->returnConnection(std::move(connection));
+        }
+        return -11;
+    }
+
+    template<typename... Args>
+    int callMysqlSpWithResultInUint(std::uint64_t& request_id, const std::string& sql, Args&&... args) const
+    {
+        auto connection = m_pool->getConnection();
+        if (!connection) return -11;
+
+        try
+        {
+            // 1. 预编译语句
+            const auto statement = connection->connection->prepare_statement(sql);
+
+            // 2. 参数打包成 tuple，然后绑定执行
+            mysql::results result;
+            connection->connection->execute(statement.bind(std::forward<Args>(args)...), result);
+
+            // 3. 读取 @request_id, @error_code 输出参数
+            mysql::results out_result;
+            connection->connection->execute("SELECT @request_id, @error_code", out_result);
+
+            m_pool->returnConnection(std::move(connection));
+
+            if (!out_result.rows().empty() && !out_result.rows().at(0).empty())
+            {
+                const auto& row = out_result.rows().at(0);
+                if (row.size() >= 2)
+                {
+                    // 第一列：request_id (BIGINT UNSIGNED -> uint64)
+                    request_id = row.at(0).as_uint64();
+                    const auto error_code = static_cast<int>(row.at(1).as_int64());
+                    spdlog::debug("[MySqlDao] request_id: {}, error_code: {}", request_id, error_code);
+                    // 第二列：error_code (INT -> int)
+                    return error_code;
+                }
             }
             return -11;
         }

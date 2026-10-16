@@ -5,9 +5,9 @@ int MySqlManager::registerUser(const std::string& email, const std::string& name
     return m_mySqlDao.registerUser(email, name, password);
 }
 
-std::uint64_t MySqlManager::sendFriendRequest(const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const
+int MySqlManager::sendFriendRequest(std::uint64_t& add_friend_request_id, const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const
 {
-    return m_mySqlDao.sendFriendRequest(applicant_uid, receiver_uid, verify_message, remark);
+    return m_mySqlDao.sendFriendRequest(add_friend_request_id, applicant_uid, receiver_uid, verify_message, remark);
 }
 
 int MySqlManager::handleFriendRequest(const std::uint64_t request_id, const std::uint64_t receiver_uid, const FriendApplyStatus status) const
