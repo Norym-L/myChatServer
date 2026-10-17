@@ -496,6 +496,7 @@ void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& sess
 {
     HANDLER_PREFIX(MESSAGE_AUTH_FRIEND_RSP)
 
+    return_value["add_friend_request_id"] = root["add_friend_request_id"].asString();
     std::uint64_t add_friend_request_id{};
     if (!uid_codec::ParseUid(root["add_friend_request_id"].asString(), add_friend_request_id))
     {

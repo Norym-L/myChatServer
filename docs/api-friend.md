@@ -131,8 +131,13 @@ B 在线时由服务端主动推送（无请求、无需回包）：
 ### 5.2 响应 MESSAGE_AUTH_FRIEND_RSP（1011）
 
 ```json
-{ "error": 0 }
+{ "error": 0, "add_friend_request_id": "123" }
 ```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `error` | int | 见下表 |
+| `add_friend_request_id` | string | **原样回显**请求中的编号；成功与失败都会带 |
 
 | error | 含义 | 存储过程返回 |
 |-------|------|------------|
@@ -142,7 +147,7 @@ B 在线时由服务端主动推送（无请求、无需回包）：
 | `1021` | 该申请已被处理过（重复处理） | `-2` |
 | `1013` | 数据库不可用；**或 `add_friend_request_id` 解析失败**（当前实现如此） | `-10` / `-11` |
 
-> 响应不回显 `add_friend_request_id` / `state`；处理结果的推送见 §6。
+> `add_friend_request_id` 是请求体的**原样回显**（不做解析），编号非法或解析失败时也会返回，请求中缺失该字段时回显为空串；`state` 不回显。处理结果的推送见 §6。
 
 ## 6. 申请处理结果通知（1012）
 
@@ -275,7 +280,7 @@ message ReplyFriendRsp { int32 error = 1; }
 
 | 字段 | 出现位置 | JSON 类型 |
 |------|---------|-----------|
-| `add_friend_request_id` | `1006` 响应、`1010` 请求 | **string** |
+| `add_friend_request_id` | `1006` / `1011` 响应、`1010` 请求 | **string** |
 | `add_friend_request_id` | `1009` 推送、`1012` 推送 | **number** |
 | `id` | `1008` 列表项 | **string** |
 | `count` | `1008` 响应 | **string** |
