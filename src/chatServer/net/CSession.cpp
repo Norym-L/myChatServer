@@ -3,6 +3,7 @@
 #include <boost/uuid.hpp>
 #include <json/value.h>
 
+#include "RedisManager.h"
 #include "../LogicSystem.h"
 #include "../CServer.h"
 
@@ -266,6 +267,7 @@ void CSession::sendFriendRequestResult(const std::uint64_t add_friend_request_id
 
 void CSession::close()
 {
+    (void) RedisManager::GetInstance().del(USER_IP_PERFIX + std::to_string(m_userId));
     // socket 为共享资源：send() 会在逻辑线程发起 async_write，关闭操作必须与之互斥，避免并发操作同一 socket
     std::lock_guard<std::mutex> lock(m_sendMutex);
     boost::system::error_code ec;
