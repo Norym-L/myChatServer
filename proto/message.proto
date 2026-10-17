@@ -56,7 +56,6 @@ service ChatService
   rpc NotifyAddFriend(AddFriendReq) returns (AddFriendRsp) {}
   rpc ReplyAddFriend(ReplyFriendReq) returns (ReplyFriendRsp) {}
   rpc SendChatMessage(SendChatMessageReq) returns (SendChatMessageRsp) {}
-  rpc NotifyAuthFriend(AuthFriendReq) returns (AuthFriendRsp) {}
   rpc NotifyTextChatMessage(TextChatMessageReq) returns (TextChatMessageRsp) {}
 }
 
@@ -74,16 +73,14 @@ message AddFriendRsp
 // 回复好友申请
 message ReplyFriendReq
 {
-  uint64 fromUid = 1;
-  uint64 toUid = 2;
-  bool agree = 3;
+  uint64 senderUid = 1;
+  uint64 addFriendRequestId = 2;
+  int32  state = 3;
 }
 
 message ReplyFriendRsp
 {
   int32 error = 1;
-  uint64 fromUid = 2;
-  uint64 toUid = 3;
 }
 
 // 聊天信息
@@ -95,20 +92,6 @@ message SendChatMessageReq
 }
 
 message SendChatMessageRsp
-{
-  int32 error = 1;
-  uint64 fromUid = 2;
-  uint64 toUid = 3;
-}
-
-// 同意好友申请
-message AuthFriendReq
-{
-  uint64 fromUid = 1;
-  uint64 toUid = 2;
-}
-
-message AuthFriendRsp
 {
   int32 error = 1;
   uint64 fromUid = 2;

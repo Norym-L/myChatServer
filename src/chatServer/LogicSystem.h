@@ -39,10 +39,12 @@ private:
     void sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void checkIsUserOnlineHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    void authFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 获取好友列表，好友申请列表
     void getUserApplyListAndFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data);
 
     [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);
+    [[nodiscard]] static bool GrpcAuthFriendRequestAndNotifyToOther(std::uint64_t sender_uid, std::uint64_t add_friend_request_id, int state, const std::string& user_ip); // FriendApplyStatus
     [[nodiscard]] static std::shared_ptr<UserInfo> SearchUserByUid(uint64_t uid);
     [[nodiscard]] static std::vector<std::shared_ptr<UserInfo> > SearchUserByName(const std::string& name);
 
@@ -55,5 +57,16 @@ private:
     std::map<short, Function_CallBack> m_callbackFunctions;
 };
 
+#define HANDLER_PREFIX(message_type) \
+Json::Reader reader;\
+Json::Value root;\
+reader.parse(message_data, root);\
+Json::Value return_value;\
+Defer defer([this, &return_value, session]()\
+    {\
+        (void) this;\
+        const std::string return_str = return_value.toStyledString();\
+        session->send(return_str.c_str(), return_str.size(), MessageType::message_type);\
+    });
 
 #endif //GATESERVER_LOGICSYSTEM_H

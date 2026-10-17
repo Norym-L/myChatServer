@@ -130,9 +130,9 @@ int MySqlDao::sendFriendRequest(std::uint64_t& add_friend_request_id, const std:
     return callMysqlSpWithResultInUint(add_friend_request_id, "CALL send_friend_request(?, ?, ?, ?, @request_id, @error_code)", applicant_uid, receiver_uid, verify_message, remark);
 }
 
-int MySqlDao::handleFriendRequest(const std::uint64_t request_id, const std::uint64_t receiver_uid, const FriendApplyStatus status) const
+int MySqlDao::handleFriendRequest(std::uint64_t& sender_uid, const std::uint64_t request_id, const std::uint64_t receiver_uid, const FriendApplyStatus status) const
 {
-    return callMysqlSpWithResult("CALL handle_friend_request(?, ?, ?, @result)", request_id, receiver_uid, status);
+    return callMysqlSpWithResultInUint(sender_uid, "CALL handle_friend_request(?, ?, ?, @request_id, @error_code)", request_id, receiver_uid, status);
 }
 
 int MySqlDao::deleteFriend(const std::uint64_t uid, const std::uint64_t friend_uid) const
@@ -143,6 +143,11 @@ int MySqlDao::deleteFriend(const std::uint64_t uid, const std::uint64_t friend_u
 int MySqlDao::updateFriendRemark(const std::uint64_t uid, const std::uint64_t friend_uid, const std::string& remark) const
 {
     return callMysqlSpWithResult("CALL update_friend_remark(?, ?, @result)", uid, friend_uid, remark);
+}
+
+int MySqlDao::getNotifyUserIdInAuthFriendReq(std::uint64_t& sender_uid, const std::uint64_t add_friend_request_id) const
+{
+    return callMysqlSpWithResultInUint(sender_uid, "CALL get_request_sender_uid(?, @request_id, @error_code)", add_friend_request_id);
 }
 
 MatchResult MySqlDao::checkIsAccountMatchEmail(const std::string& email, const std::uint64_t account) const

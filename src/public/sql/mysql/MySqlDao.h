@@ -104,13 +104,14 @@ public:
     [[nodiscard]] int sendFriendRequest(std::uint64_t& add_friend_request_id, std::uint64_t applicant_uid, std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const;
 
     /**
-     * 处理好友请求
+     * 处理好友请求并接收发送者的uid
+     * @param sender_uid 发送者的uid
      * @param request_id 好友请求编号
      * @param receiver_uid 接收请求用户id
      * @param status 验证状态
      * @return 0 处理成功 -1 申请不存在或无权处理 -2 该申请已被处理过 -10 代表数据库异常
      */
-    [[nodiscard]] int handleFriendRequest(std::uint64_t request_id, std::uint64_t receiver_uid, FriendApplyStatus status) const;
+    [[nodiscard]] int handleFriendRequest(std::uint64_t& sender_uid, std::uint64_t request_id, std::uint64_t receiver_uid, FriendApplyStatus status) const;
 
     /**
      * 删除好友
@@ -127,6 +128,14 @@ public:
      * @return 0 代表设置成功 -1 对方不是你的好友，无法设置备注 -2 不能给自己设置备注 -10 代表数据库异常
      */
     [[nodiscard]] int updateFriendRemark(std::uint64_t uid, std::uint64_t friend_uid, const std::string& remark) const;
+
+    /**
+     * 获取处理好友请求需要通知对方的uid
+     * @param sender_uid 对方uid
+     * @param add_friend_request_id 好友亲求编号
+     * @return 0 成功 -1 申请不存在 -10 代表数据库异常
+     */
+    [[nodiscard]] int getNotifyUserIdInAuthFriendReq(std::uint64_t& sender_uid, std::uint64_t add_friend_request_id) const;
 
     /// 校验 uid 与 email 是否匹配；依赖不可用时返回 MatchResult::Unavailable
     [[nodiscard]] MatchResult checkIsAccountMatchEmail(const std::string& email, std::uint64_t account) const;

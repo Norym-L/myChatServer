@@ -184,24 +184,22 @@ void LogicSystem::registerCallBacks()
             {
                 checkIsUserOnlineHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_AUTH_FRIEND_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                authFriendRequestHandler(session, message_data);
+            };
 }
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    Json::Reader reader;
-    Json::Value root;
-    reader.parse(message_data, root);
+    HANDLER_PREFIX(MESSAGE_CHAT_LOGIN_RSP)
+
     // 客户端 uid 统一为字符串：非字符串或非纯数字一律按非法 uid 处理，避免 jsoncpp 抛异常
     const Json::Value& uid_value = root["uid"];
     const auto token = root["token"].asString();
-
-    Json::Value return_value;
-    Defer defer([this, &return_value, session]()
-        {
-            (void) this;
-            const std::string return_str = return_value.toStyledString();
-            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_LOGIN_RSP);
-        });
 
     std::uint64_t uid{0};
     if (!uid_value.isString() || !uid_codec::ParseUid(uid_value.asString(), uid))
@@ -316,22 +314,14 @@ void LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, con
 
 void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    Json::Reader reader;
-    Json::Value root;
-    reader.parse(message_data, root);
+    HANDLER_PREFIX(MESSAGE_SEARCH_USER_RSP)
+
     // 客户端 uid 用字符串传递；非字符串按空串处理，避免 jsoncpp 抛异常终止逻辑线程
     const Json::Value& search_value = root["uid"];
     const auto user_name_or_uid = search_value.isString() ? search_value.asString() : std::string(); // 可能是 uid 也有可能是 用户名
 
     spdlog::debug("[logic system] user search, search value is: {}", user_name_or_uid);
 
-    Json::Value return_value;
-    Defer defer([this, &return_value, session]()
-        {
-            (void) this;
-            const std::string return_str = return_value.toStyledString();
-            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_SEARCH_USER_RSP);
-        });
     std::uint64_t uid{};
     const auto [ptr, ec] = std::from_chars(
         user_name_or_uid.c_str(), user_name_or_uid.c_str() + user_name_or_uid.size(), uid);
@@ -376,9 +366,7 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
 
 void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    Json::Reader reader;
-    Json::Value root;
-    reader.parse(message_data, root);
+    HANDLER_PREFIX(MESSAGE_ADD_FRIEND_RSP)
 
     std::uint64_t form_uid{};
     std::uint64_t to_uid{};
@@ -387,17 +375,14 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
     {
         spdlog::warn("[logic system] add friend request, parse uid failed, str is {} and {}", root["uid"].asString(), root["to_uid"].asString());
     }
+    if (form_uid != session->getUserId())
+    {
+        return_value["error"] = ErrorCode::USER_UID_INVALID;
+        return;
+    }
     spdlog::debug("[logic system] add friend request, from {} to {}", form_uid, to_uid);
     const std::string verify_info = root["verify_info"].asString();
     const std::string remark = root["remark"].asString();
-
-    Json::Value return_value;
-    Defer defer([this, &return_value, session]()
-        {
-            (void) this;
-            const std::string return_str = return_value.toStyledString();
-            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_ADD_FRIEND_RSP);
-        });
 
     std::uint64_t add_frined_request_id{};
     const auto code = MySqlManager::GetInstance().sendFriendRequest(add_frined_request_id, form_uid, to_uid, verify_info, remark);
@@ -420,7 +405,7 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
         {
             return_value["error"] = ErrorCode::CHACK_YOUR_RECEIVED_FRIEND_REQUEST;
         }
-        else if (code == -10)
+        else
         {
             return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         }
@@ -428,7 +413,6 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
     }
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["add_friend_request_id"] = std::to_string(add_frined_request_id);
-    const auto user_self_info = SearchUserByUid(form_uid);
     // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
     const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
     if (user_ip.empty())
@@ -452,23 +436,18 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
 
 void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    Json::Reader reader;
-    Json::Value root;
-    reader.parse(message_data, root);
-
-    Json::Value return_value;
-    Defer defer([this, &return_value, session]()
-        {
-            (void) this;
-            const std::string return_str = return_value.toStyledString();
-            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_SYNC_FRIEND_REQUEST_RSP);
-        });
+    HANDLER_PREFIX(MESSAGE_SYNC_FRIEND_REQUEST_RSP)
 
     std::uint64_t uid{};
     if (!uid_codec::ParseUid(root["uid"].asString(), uid))
     {
         spdlog::warn("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        return;
+    }
+    if (uid != session->getUserId())
+    {
+        return_value["error"] = ErrorCode::USER_UID_INVALID;
         return;
     }
     spdlog::debug("[logic system] sync friend request list, uid: {}", uid);
@@ -495,17 +474,7 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
 
 void LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    Json::Reader reader;
-    Json::Value root;
-    reader.parse(message_data, root);
-
-    Json::Value return_value;
-    Defer defer([this, &return_value, session]()
-        {
-            (void) this;
-            const std::string return_str = return_value.toStyledString();
-            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHECK_IS_USER_ONLINE_RSP);
-        });
+    HANDLER_PREFIX(MESSAGE_CHECK_IS_USER_ONLINE_RSP)
 
     std::uint64_t uid{};
     if (!uid_codec::ParseUid(root["uid"].asString(), uid))
@@ -523,6 +492,69 @@ void LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr<CSession>& sess
     return_value["online"] = isOnline ? "online" : "offline";
 }
 
+void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_AUTH_FRIEND_RSP)
+
+    std::uint64_t add_friend_request_id{};
+    if (!uid_codec::ParseUid(root["add_friend_request_id"].asString(), add_friend_request_id))
+    {
+        spdlog::warn("[logic system] authFriendRequestHandler, parse add_friend_request_id failed, str is {}", root["add_friend_request_id"].asString());
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        return;
+    }
+    int state{};
+    if (!uid_codec::ParseNumber<int>(root["state"].asString(), state) ||
+        state != 1 && state != 2) // 只能是接受(1)或拒绝(2)
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        return;
+    }
+    spdlog::debug("[logic system] authFriendRequestHandler, id: {} state: {}", add_friend_request_id, state);
+    std::uint64_t sender_uid{}; // 这条好友申请的发送者
+    const auto code = MySqlManager::GetInstance().handleFriendRequest(sender_uid, add_friend_request_id, session->getUserId(), static_cast<FriendApplyStatus>(state));
+    if (code < 0)
+    {
+        if (code == -1)
+        {
+            return_value["error"] = ErrorCode::USER_UID_INVALID;
+        }
+        else if (code == -2)
+        {
+            return_value["error"] = ErrorCode::DOUBLE_HANDLE_REQUEST;
+        }
+        else
+        {
+            return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        }
+        return;
+    }
+
+    return_value["error"] = ErrorCode::SUCCESS;
+
+
+    // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
+    const auto user_ip = RedisManager::GetInstance().isUserOnLine(sender_uid);
+    if (user_ip.empty())
+    {
+        return; // 对方不在线
+    }
+    if (user_ip == m_selfServerName)
+    {
+        // 在当前服务器
+        const auto session_other = UserManager::GetInstance().getSession(sender_uid);
+        if (!session_other)
+        {
+            return;
+        }
+        session_other->sendFriendRequestResult(add_friend_request_id, state);
+        spdlog::debug("LogicSystem::authFriendRequestHandler send auth friend request to {}, status {}", sender_uid, state);
+        return;
+    }
+
+    (void) GrpcAuthFriendRequestAndNotifyToOther(sender_uid, add_friend_request_id, state, user_ip);
+}
+
 void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, const std::string& message_data)
 {
     //TODO
@@ -536,7 +568,22 @@ bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_re
     const auto rsp = ChatGrpcClient::GetInstance().addFriend(user_ip, req);
     if (rsp.error() != 0)
     {
-        spdlog::warn("LogicSystem::sendFriendRequestToOther send grpc error, error: {}", rsp.error());
+        spdlog::warn("LogicSystem::GrpcSendFriendRequestToOther send grpc error, error: {}", rsp.error());
+        return false;
+    }
+    return true;
+}
+
+bool LogicSystem::GrpcAuthFriendRequestAndNotifyToOther(const std::uint64_t sender_uid, const std::uint64_t add_friend_request_id, const int state, const std::string& user_ip)
+{
+    ReplyFriendReq req;
+    req.set_senderuid(sender_uid);
+    req.set_addfriendrequestid(add_friend_request_id);
+    req.set_state(state);
+    const auto rsp = ChatGrpcClient::GetInstance().replyFriend(user_ip, req);
+    if (rsp.error() != 0)
+    {
+        spdlog::warn("LogicSystem::GrpcAuthFriendRequestAndNotifyToOther send grpc error, error: {}", rsp.error());
         return false;
     }
     return true;

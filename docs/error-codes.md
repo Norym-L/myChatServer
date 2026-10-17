@@ -25,9 +25,11 @@
 | `1016` | `USER_IS_YOUR_FRIEND_BEFOR` | 添加对象已经是好友 | TCP 添加好友响应 |
 | `1017` | —— | **未定义**（编号留空，`enum ErrorCode` 中不存在） | —— |
 | `1018` | `CHACK_YOUR_RECEIVED_FRIEND_REQUEST` | 对方已向你发起过申请，请检查好友申请列表 | TCP 添加好友响应 |
-| `1019` | `USER_OUTLINE` | 目标用户离线（本实例无该用户会话） | gRPC `ChatService.NotifyAddFriend` |
+| `1019` | `USER_OUTLINE` | 目标用户离线（本实例无该用户会话） | gRPC `ChatService.NotifyAddFriend` / `ReplyAddFriend` |
+| `1020` | `REQUEST_VALUE_INVALID` | 客户端请求数据非法 | TCP 好友验证响应（`1011`） |
+| `1021` | `DOUBLE_HANDLE_REQUEST` | 重复处理请求（该好友申请已被处理过） | TCP 好友验证响应（`1011`） |
 
-> `enum MessageType` 的 TCP 消息编号（`1001`–`1017`）与这里的 `ErrorCode` 是**两套独立枚举**，数值相同不代表同一含义。
+> `enum MessageType` 的 TCP 消息编号（`1001`–`1019`）与这里的 `ErrorCode` 是**两套独立枚举**，数值相同不代表同一含义。好友相关接口见 [`api-friend.md`](api-friend.md)。
 
 ## 2. 本次变更
 

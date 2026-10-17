@@ -16,8 +16,8 @@ using grpc::ClientContext;
 using message::AddFriendReq;
 using message::AddFriendRsp;
 
-using message::AuthFriendReq;
-using message::AuthFriendRsp;
+using message::ReplyFriendReq;
+using message::ReplyFriendRsp;
 
 using message::GetChatServerRsp;
 using message::LoginReq;
@@ -34,7 +34,7 @@ class ChatGrpcClient final : public TSingLeton<ChatGrpcClient>
 
 public:
     [[nodiscard]] AddFriendRsp addFriend(const std::string& server_ip, const AddFriendReq& req);
-    [[nodiscard]] AuthFriendRsp authFriend(const std::string& server_ip, const AuthFriendReq& req);
+    [[nodiscard]] ReplyFriendRsp replyFriend(const std::string& server_ip, const ReplyFriendReq& req);
     [[nodiscard]] TextChatMessageRsp sendTextChatMessage(const std::string& server_ip, const TextChatMessageReq& req, const Json::Value& return_value);
     [[nodiscard]] std::shared_ptr<UserInfo> getBaseInfo(const std::string& base_key, std::uint64_t uid);
 

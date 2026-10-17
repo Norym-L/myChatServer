@@ -29,6 +29,8 @@ enum ErrorCode
     USER_IS_YOUR_FRIEND_BEFOR          = 1016, // 添加好友的对象已经是好友
     CHACK_YOUR_RECEIVED_FRIEND_REQUEST = 1018, // 请检查好友申请列表，对方已经向你发起了好友申请
     USER_OUTLINE                       = 1019, // 用户离线
+    REQUEST_VALUE_INVALID              = 1020, // 客户端请求数据非法
+    DOUBLE_HANDLE_REQUEST              = 1021, // 重复处理请求
 };
 
 #define MAX_LENGTH      (1024 * 2)
@@ -47,10 +49,10 @@ enum MessageType : std::uint16_t
     MESSAGE_ADD_FRIEND_RSP,           //申请添加好友回复
     MESSAGE_SYNC_FRIEND_REQUEST_REQ,  //获取好友申请列表
     MESSAGE_SYNC_FRIEND_REQUEST_RSP,  //获取好友申请列表回包
-    MESSAGE_NOTIFY_ADD_FRIEND_REQ,    //通知用户添加好友申请
+    MESSAGE_NOTIFY_ADD_FRIEND_REQ,    //通知用户添加好友申请（收到对方发来的好友申请）
     MESSAGE_AUTH_FRIEND_REQ,          //认证好友请求
     MESSAGE_AUTH_FRIEND_RSP,          //认证好友回复
-    MESSAGE_NOTIFY_AUTH_FRIEND_REQ,   //通知用户认证好友申请
+    MESSAGE_NOTIFY_AUTH_FRIEND_REQ,   //通知用户认证好友申请（收到发送给对方的好友申请处理结果）
     MESSAGE_TEXT_CHAT_MSG_REQ,        //文本聊天信息请求
     MESSAGE_TEXT_CHAT_MSG_RSP,        //文本聊天信息回复
     MESSAGE_NOTIFY_TEXT_CHAT_MSG_REQ, //通知用户文本聊天信息

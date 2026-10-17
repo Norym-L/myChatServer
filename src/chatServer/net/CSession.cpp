@@ -143,11 +143,6 @@ void CSession::AsyncReadBody(size_t message_len)
                     memcpy(m_receiveMessageNode->m_data, m_data, bytes_transferred);
                     m_receiveMessageNode->m_currentLen += bytes_transferred;
                     m_receiveMessageNode->m_data[m_receiveMessageNode->m_totalLen] = '\0';
-#ifdef CHAT_DEBUG
-                    spdlog::debug("[tcp session] message is: {}", m_receiveMessageNode->m_data);
-#else
-                    spdlog::debug("[tcp session] receive message body, len: {}", m_receiveMessageNode->m_totalLen);
-#endif
                     // 将消息添加到逻辑处理队列中
                     LogicSystem::GetInstance().postMessageToQueue(std::shared_ptr<LogicNode>(new LogicNode(shared_from_this(), m_receiveMessageNode)));
                     // 继续监听
@@ -254,9 +249,19 @@ void CSession::sendAuthFriendRequest(const std::uint64_t add_friend_request_id)
 {
     Json::Value return_value;
     return_value["error"] = ErrorCode::SUCCESS;
-    return_value["add_friend_request_id"] = add_friend_request_id;
+    return_value["add_friend_request_id"] = std::to_string(add_friend_request_id);
     const std::string return_str = return_value.toStyledString();
     send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_NOTIFY_ADD_FRIEND_REQ);
+}
+
+void CSession::sendFriendRequestResult(const std::uint64_t add_friend_request_id, const int state)
+{
+    Json::Value return_value;
+    return_value["error"] = ErrorCode::SUCCESS;
+    return_value["add_friend_request_id"] = std::to_string(add_friend_request_id);
+    return_value["state"] = state;
+    const std::string return_str = return_value.toStyledString();
+    send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_NOTIFY_AUTH_FRIEND_REQ);
 }
 
 void CSession::close()

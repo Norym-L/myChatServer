@@ -141,39 +141,19 @@ print(message_id, json.loads(body.decode()))
 - 已实现登录、用户搜索、好友申请/同步与心跳，尚无文本聊天转发、群组等业务消息类型；
 - 明文传输（未启用 TLS），且无消息级鉴权（登录成功后不再校验后续帧）。
 
-## 6. 实现的接口
+## 6. 好友相关接口
 
-### 1. 发送好友申请回包
+好友申请 / 验证 / 在线查询等消息的完整字段、流程与错误码见独立文档 **[`api-friend.md`](api-friend.md)**。编号速查：
 
-MessageType::MESSAGE_ADD_FRIEND_RSP
-
-- error ErrorCode
-- add_friend_request_id 好友申请编号
-
-### 2. 发送好友验证请求（收到好友申请）
-
-MessageType::MESSAGE_NOTIFY_ADD_FRIEND_REQ
-
-- error ErrorCode
-- add_friend_request_id 好友申请编号
-
-### 3. 同步好友请求列表回包
-
-MessageType::MESSAGE_SYNC_FRIEND_REQUEST_RSP
-
-- error ErrorCode
-- count // 消息数量
-- apply_infos {
-    info_1 {
-        - id // 编号（字符串）
-        - from_uid // 发送方（字符串）
-        - to_uid // 接收方（字符串）
-        - name // 对方名称
-        - verify_info // 验证信息
-        - icon // 对方头像
-        - sex // 对方性别
-        - state // 接受状态
-    }
-    info_2,
-    ...
-}
+| message_id | 名称 | 方向 |
+|-----------|------|------|
+| `1005` | `MESSAGE_ADD_FRIEND_REQ` | 客户端 → 服务端 |
+| `1006` | `MESSAGE_ADD_FRIEND_RSP` | 服务端 → 客户端 |
+| `1007` | `MESSAGE_SYNC_FRIEND_REQUEST_REQ` | 客户端 → 服务端 |
+| `1008` | `MESSAGE_SYNC_FRIEND_REQUEST_RSP` | 服务端 → 客户端 |
+| `1009` | `MESSAGE_NOTIFY_ADD_FRIEND_REQ` | 服务端 → 客户端（推送） |
+| `1010` | `MESSAGE_AUTH_FRIEND_REQ` | 客户端 → 服务端 |
+| `1011` | `MESSAGE_AUTH_FRIEND_RSP` | 服务端 → 客户端 |
+| `1012` | `MESSAGE_NOTIFY_AUTH_FRIEND_REQ` | 服务端 → 客户端（推送） |
+| `1018` | `MESSAGE_CHECK_IS_USER_ONLINE_REQ` | 客户端 → 服务端 |
+| `1019` | `MESSAGE_CHECK_IS_USER_ONLINE_RSP` | 服务端 → 客户端 |

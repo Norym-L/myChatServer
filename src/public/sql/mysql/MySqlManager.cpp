@@ -10,9 +10,9 @@ int MySqlManager::sendFriendRequest(std::uint64_t& add_friend_request_id, const 
     return m_mySqlDao.sendFriendRequest(add_friend_request_id, applicant_uid, receiver_uid, verify_message, remark);
 }
 
-int MySqlManager::handleFriendRequest(const std::uint64_t request_id, const std::uint64_t receiver_uid, const FriendApplyStatus status) const
+int MySqlManager::handleFriendRequest(std::uint64_t& sender_uid, const std::uint64_t request_id, const std::uint64_t receiver_uid, const FriendApplyStatus status) const
 {
-    return m_mySqlDao.handleFriendRequest(request_id, receiver_uid, status);
+    return m_mySqlDao.handleFriendRequest(sender_uid, request_id, receiver_uid, status);
 }
 
 int MySqlManager::deleteFriend(const std::uint64_t uid, const std::uint64_t friend_uid) const
@@ -23,6 +23,11 @@ int MySqlManager::deleteFriend(const std::uint64_t uid, const std::uint64_t frie
 int MySqlManager::updateFriendRemark(const std::uint64_t uid, const std::uint64_t friend_uid, const std::string& remark) const
 {
     return m_mySqlDao.updateFriendRemark(uid, friend_uid, remark);
+}
+
+int MySqlManager::getNotifyUserIdInAuthFriendReq(std::uint64_t& sender_uid, const std::uint64_t add_friend_request_id) const
+{
+    return m_mySqlDao.getNotifyUserIdInAuthFriendReq(sender_uid, add_friend_request_id);
 }
 
 MatchResult MySqlManager::checkIsAccountMatchEmail(const std::uint64_t account, const std::string& email) const
@@ -50,7 +55,7 @@ std::vector<std::shared_ptr<UserInfo> > MySqlManager::getUser(const std::string&
     return m_mySqlDao.getUser(name);
 }
 
-std::vector<std::shared_ptr<ApplyInfo>> MySqlManager::getFriendRequestListByUid(const uint64_t uid)
+std::vector<std::shared_ptr<ApplyInfo> > MySqlManager::getFriendRequestListByUid(const uint64_t uid)
 {
     return m_mySqlDao.getFriendRequestListByUid(uid);
 }

@@ -44,6 +44,13 @@ public:
      */
     void sendAuthFriendRequest(std::uint64_t add_friend_request_id);
 
+    /**
+     * 给当前session绑定用户发送好友验证申请的结果
+     * @param add_friend_request_id 好友请求编号
+     * @param state 状态 1接受 2拒绝
+     */
+    void sendFriendRequestResult(std::uint64_t add_friend_request_id, int state);
+
     void close();
 
 private:

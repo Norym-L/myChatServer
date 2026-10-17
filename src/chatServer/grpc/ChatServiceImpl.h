@@ -13,9 +13,6 @@ using grpc::ServerContext;
 using message::AddFriendReq;
 using message::AddFriendRsp;
 
-using message::AuthFriendReq;
-using message::AuthFriendRsp;
-
 using message::GetChatServerRsp;
 using message::LoginReq;
 using message::LoginRsp;
@@ -31,7 +28,7 @@ public:
     ChatServiceImpl();
 
     [[nodiscard]] Status NotifyAddFriend(ServerContext* context, const AddFriendReq* request, AddFriendRsp* response) override;
-    [[nodiscard]] Status NotifyAuthFriend(ServerContext* context, const AuthFriendReq* request, AuthFriendRsp* response) override;
+    [[nodiscard]] Status ReplyAddFriend(ServerContext* context, const message::ReplyFriendReq* request, message::ReplyFriendRsp* response) override;
     [[nodiscard]] Status NotifyTextChatMessage(ServerContext* context, const TextChatMessageReq* request, TextChatMessageRsp* response) override;
     [[nodiscard]] std::shared_ptr<UserInfo> getBaseInfo(const std::string& base_key, std::uint64_t uid);
 };

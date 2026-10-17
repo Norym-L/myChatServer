@@ -59,6 +59,7 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 | [`api-http.md`](api-http.md) | GateServer 的 5 个 HTTP 接口、公共约定与响应示例 |
 | [`api-grpc.md`](api-grpc.md) | 三个 gRPC 服务方法的 IDL、调用方与行为约定 |
 | [`api-tcp.md`](api-tcp.md) | ChatServer 的私有 TCP 帧协议与消息定义 |
+| [`api-friend.md`](api-friend.md) | 好友验证系统：申请 / 验证 / 通知 / 列表 / 在线查询与 gRPC 转发 |
 | [`error-codes.md`](error-codes.md) | 全局错误码表（HTTP 与 gRPC 共用） |
 | [`api-changes.md`](api-changes.md) | 接口变更记录：新增 / 修改 / 删除与兼容性说明 |
 

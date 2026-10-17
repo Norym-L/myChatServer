@@ -19,8 +19,17 @@ Status ChatServiceImpl::NotifyAddFriend(ServerContext* context, const AddFriendR
     return Status::OK;
 }
 
-Status ChatServiceImpl::NotifyAuthFriend(ServerContext* context, const AuthFriendReq* request, AuthFriendRsp* response)
+Status ChatServiceImpl::ReplyAddFriend(ServerContext* context, const message::ReplyFriendReq* request, message::ReplyFriendRsp* response)
 {
+    const auto session = UserManager::GetInstance().getSession(request->senderuid());
+    if (!session)
+    {
+        response->set_error(ErrorCode::USER_OUTLINE);
+        return Status::OK;
+    }
+    session->sendFriendRequestResult(request->addfriendrequestid(), request->state());
+    response->set_error(ErrorCode::SUCCESS);
+    spdlog::debug("ChatServiceImpl::ReplyAddFriend send friend request reply to: {}", request->senderuid());
     return Status::OK;
 }
 
