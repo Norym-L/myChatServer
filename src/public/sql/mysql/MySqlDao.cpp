@@ -426,3 +426,49 @@ std::vector<std::shared_ptr<ApplyInfo> > MySqlDao::getFriendRequestListByUid(con
     m_pool->returnConnection(std::move(connection));
     return {};
 }
+
+std::vector<UidAndRemarkInUserFriend> MySqlDao::getUserFriendList(uint64_t uid) const
+{
+    auto connection = m_pool->getConnection();
+    if (!connection)
+    {
+        return {};
+    }
+
+    try
+    {
+        const auto sql = connection->connection->prepare_statement("SELECT `friend_uid`, `remark` FROM `user_friend` WHERE `uid` = ?");
+        mysql::results result;
+        connection->connection->execute(sql.bind(uid), result);
+        m_pool->returnConnection(std::move(connection));
+
+        if (result.rows().empty())
+        {
+            return {};
+        }
+
+        std::vector<UidAndRemarkInUserFriend> friend_list;
+
+        for (const auto& row: result.rows())
+        {
+            friend_list.emplace_back(
+                row.at(1).is_null() ? std::string() : std::string(row.at(1).as_string()),
+                row.at(0).as_uint64()
+                );
+        }
+
+        return friend_list;
+    }
+    catch (mysql::error_with_diagnostics& e)
+    {
+        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
+        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::error("[MySqlDao] Error: {}", e.what());
+    }
+
+    m_pool->returnConnection(std::move(connection));
+    return {};
+}

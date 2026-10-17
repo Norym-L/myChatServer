@@ -60,4 +60,9 @@ std::vector<std::shared_ptr<ApplyInfo> > MySqlManager::getFriendRequestListByUid
     return m_mySqlDao.getFriendRequestListByUid(uid);
 }
 
+std::vector<UidAndRemarkInUserFriend> MySqlManager::getUserFriendList(const uint64_t uid) const
+{
+    return m_mySqlDao.getUserFriendList(uid);
+}
+
 MySqlManager::MySqlManager() = default;

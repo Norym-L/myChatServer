@@ -55,11 +55,13 @@ enum MessageType : std::uint16_t
     MESSAGE_NOTIFY_AUTH_FRIEND_REQ,   //通知用户认证好友申请（收到发送给对方的好友申请处理结果）
     MESSAGE_TEXT_CHAT_MSG_REQ,        //文本聊天信息请求
     MESSAGE_TEXT_CHAT_MSG_RSP,        //文本聊天信息回复
-    MESSAGE_NOTIFY_TEXT_CHAT_MSG_REQ, //通知用户文本聊天信息
+    MESSAGE_NOTIFY_CHAT_MSG_REQ,      //通知用户收到聊天信息
     MESSAGE_HEART_BEAT_REQ,           //心跳请求
     MESSAGE_HEART_BEAT_RSP,           //心跳回包
     MESSAGE_CHECK_IS_USER_ONLINE_REQ, //查询用户是否在线请求
-    MESSAGE_CHECK_IS_USER_ONLINE_RSP  //查询用户是否在线请求回包
+    MESSAGE_CHECK_IS_USER_ONLINE_RSP, //查询用户是否在线请求回包
+    MESSAGE_SYNC_FRIEND_LIST_REQ,     //获取好友列表
+    MESSAGE_SYNC_FRIEND_LIST_RSP,     //获取好友列表回包
 };
 
 #include <fmt/format.h>

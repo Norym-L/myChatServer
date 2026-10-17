@@ -1,6 +1,6 @@
 # 好友验证系统接口
 
-好友申请、验证（接受 / 拒绝）、申请列表同步与用户在线查询的完整接口说明。
+好友申请、验证（接受 / 拒绝）、好友列表 / 申请列表同步与用户在线查询的完整接口说明。
 
 | 层 | 文件 |
 |----|------|
@@ -45,18 +45,20 @@ B                    B 的 ChatServer                 A 的 ChatServer          
 
 ## 2. TCP 消息一览
 
-| message_id | 名称 | 方向 | 用途 |
-|-----------|------|------|------|
-| `1005` | `MESSAGE_ADD_FRIEND_REQ` | 客户端 → 服务端 | 提交好友申请 |
-| `1006` | `MESSAGE_ADD_FRIEND_RSP` | 服务端 → 客户端 | 申请结果 |
-| `1007` | `MESSAGE_SYNC_FRIEND_REQUEST_REQ` | 客户端 → 服务端 | 拉取好友申请列表 |
-| `1008` | `MESSAGE_SYNC_FRIEND_REQUEST_RSP` | 服务端 → 客户端 | 列表回包 |
-| `1009` | `MESSAGE_NOTIFY_ADD_FRIEND_REQ` | 服务端 → 客户端（推送） | 收到新的好友申请 |
-| `1010` | `MESSAGE_AUTH_FRIEND_REQ` | 客户端 → 服务端 | 接受 / 拒绝好友申请 |
-| `1011` | `MESSAGE_AUTH_FRIEND_RSP` | 服务端 → 客户端 | 处理结果 |
-| `1012` | `MESSAGE_NOTIFY_AUTH_FRIEND_REQ` | 服务端 → 客户端（推送） | 自己发出的申请被处理 |
-| `1018` | `MESSAGE_CHECK_IS_USER_ONLINE_REQ` | 客户端 → 服务端 | 查询用户是否在线 |
-| `1019` | `MESSAGE_CHECK_IS_USER_ONLINE_RSP` | 服务端 → 客户端 | 在线状态回包 |
+| message_id | 名称                               | 方向                    | 用途                 |
+|------------|------------------------------------|-------------------------|----------------------|
+| `1005`     | `MESSAGE_ADD_FRIEND_REQ`           | 客户端 → 服务端         | 提交好友申请         |
+| `1006`     | `MESSAGE_ADD_FRIEND_RSP`           | 服务端 → 客户端         | 申请结果             |
+| `1007`     | `MESSAGE_SYNC_FRIEND_REQUEST_REQ`  | 客户端 → 服务端         | 拉取好友申请列表     |
+| `1008`     | `MESSAGE_SYNC_FRIEND_REQUEST_RSP`  | 服务端 → 客户端         | 列表回包             |
+| `1009`     | `MESSAGE_NOTIFY_ADD_FRIEND_REQ`    | 服务端 → 客户端（推送） | 收到新的好友申请     |
+| `1010`     | `MESSAGE_AUTH_FRIEND_REQ`          | 客户端 → 服务端         | 接受 / 拒绝好友申请  |
+| `1011`     | `MESSAGE_AUTH_FRIEND_RSP`          | 服务端 → 客户端         | 处理结果             |
+| `1012`     | `MESSAGE_NOTIFY_AUTH_FRIEND_REQ`   | 服务端 → 客户端（推送） | 自己发出的申请被处理 |
+| `1018`     | `MESSAGE_CHECK_IS_USER_ONLINE_REQ` | 客户端 → 服务端         | 查询用户是否在线     |
+| `1019`     | `MESSAGE_CHECK_IS_USER_ONLINE_RSP` | 服务端 → 客户端         | 在线状态回包         |
+| `1020`     | `MESSAGE_SYNC_FRIEND_LIST_REQ`     | 客户端 → 服务端         | 获取好友列表         |
+| `1021`     | `MESSAGE_SYNC_FRIEND_LIST_RSP`     | 服务端 → 客户端         | 好友列表回包         |
 
 > 帧格式见 [`api-tcp.md`](api-tcp.md)：`[message_id:2][body_len:2][body]`。`message_id` 取 `src/public/const.h` 中 `enum MessageType` 的值。
 
@@ -88,7 +90,7 @@ B                    B 的 ChatServer                 A 的 ChatServer          
 { "error": 0, "add_friend_request_id": "123" }
 ```
 
-> `add_friend_request_id` 为**字符串**（其余编号字段的类型约定见 [§10](#10-字段类型速查)）。
+> `add_friend_request_id` 为 **字符串**（其余编号字段的类型约定见 [§11](#11-字段类型速查)）。
 
 **失败**（仅含 `error`）
 
@@ -195,34 +197,80 @@ A 在线时由服务端主动推送（无请求、无需回包）：
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `error` | int | `0` 成功；uid 解析失败时返回 `1020` |
-| `count` | string | 申请条数 |
-| `apply_infos` | array | 申请列表；**无数据时不出现该字段** |
-| `apply_infos[].id` | string | 申请编号 |
-| `apply_infos[].from_uid` | string | 申请人 uid |
-| `apply_infos[].to_uid` | string | 接收人 uid |
-| `apply_infos[].name` | string | 对方昵称 |
-| `apply_infos[].verify_info` | string | 验证信息 |
-| `apply_infos[].icon` | string | 对方头像 |
-| `apply_infos[].sex` | int | `0` 男 / `1` 女 / `2` 未知 |
-| `apply_infos[].state` | int | `0` 待处理 / `1` 已接受 / `2` 已拒绝 |
-| `apply_infos[].nick` | string | 备注：仅当**当前用户是发送方**且申请时填了 `remark` 时非空；接收方或未填备注时为空串（⚠️ 当前实现取值有误，见 §12） |
+| 字段                        | 类型   | 说明                                                                                 |
+|-----------------------------|--------|--------------------------------------------------------------------------------------|
+| `error`                     | int    | `0` 成功；uid 解析失败时返回 `1020`                                                  |
+| `count`                     | string | 申请条数                                                                             |
+| `apply_infos`               | array  | 申请列表；**无数据时不出现该字段**                                                   |
+| `apply_infos[].id`          | string | 申请编号                                                                             |
+| `apply_infos[].from_uid`    | string | 申请人 uid                                                                           |
+| `apply_infos[].to_uid`      | string | 接收人 uid                                                                           |
+| `apply_infos[].name`        | string | 对方昵称                                                                             |
+| `apply_infos[].verify_info` | string | 验证信息                                                                             |
+| `apply_infos[].icon`        | string | 对方头像                                                                             |
+| `apply_infos[].sex`         | int    | `0` 男 / `1` 女 / `2` 未知                                                           |
+| `apply_infos[].state`       | int    | `0` 待处理 / `1` 已接受 / `2` 已拒绝                                                 |
+| `apply_infos[].nick`        | string | 备注：仅当**当前用户是发送方**且申请时填了 `remark` 时非空；接收方或未填备注时为空串 |
 
 - 返回当前用户**相关的全部申请**（我发出的 + 我收到的），按创建时间倒序。
 - `name` / `icon` / `sex` 取的是**对方**的资料。
 - `nick` 是"我给对方设置的备注"，因此**只在发送方视角**返回值，接收方看到的恒为空串。
 
-## 8. 查询用户在线状态（1018 / 1019）
+## 8. 获取好友列表（1020 / 1021）
 
-### 8.1 请求 MESSAGE_CHECK_IS_USER_ONLINE_REQ（1018）
+### 8.1 请求 MESSAGE_SYNC_FRIEND_LIST_REQ（1020）
+
+请求体可为空 JSON `{}`：用户取 **当前会话已登录的 uid**（`session->getUserId()`），不需要再传 uid。
+
+```json
+{}
+```
+
+### 8.2 响应 MESSAGE_SYNC_FRIEND_LIST_RSP（1021）
+
+```json
+{
+  "error": 0,
+  "count": 1,
+  "friends": [
+    {
+      "uid": "10002",
+      "name": "norym",
+      "desc": "签名",
+      "nick": "老同学",
+      "sex": 0,
+      "icon": "http://example.com/icon.png"
+    }
+  ]
+}
+```
+
+| 字段             | 类型   | 说明                                                                  |
+|------------------|--------|-----------------------------------------------------------------------|
+| `error`          | int    | `0` 成功；`1011` 会话未登录                                           |
+| `count`          | string | 好友条数                                                              |
+| `friends`        | array  | 好友列表；**无好友时不出现该字段**                                    |
+| `friends[].uid`  | string | 好友 uid                                                              |
+| `friends[].name` | string | 好友昵称                                                              |
+| `friends[].desc` | string | 好友签名                                                              |
+| `friends[].nick` | string | **我给该好友设置的备注**（来自 `user_friend.remark`），未设置时为空串 |
+| `friends[].sex`  | int    | `0` 男 / `1` 女 / `2` 未知                                            |
+| `friends[].icon` | string | 好友头像                                                              |
+
+- 数据来源：`user_friend` 表中 `uid` 为当前用户的记录，每条再按 `friend_uid` 补齐用户资料。
+- 好友账号已不存在（用户资料查不到）时跳过该条，不会导致整体失败。
+- 未登录（会话未绑定 uid）时返回 `1011`。
+- `count` 按实际返回的 `friends` 条数统计（跳过的无效好友不计入）。
+
+## 9. 查询用户在线状态（1018 / 1019）
+
+### 9.1 请求 MESSAGE_CHECK_IS_USER_ONLINE_REQ（1018）
 
 ```json
 { "uid": "10002" }
 ```
 
-### 8.2 响应 MESSAGE_CHECK_IS_USER_ONLINE_RSP（1019）
+### 9.2 响应 MESSAGE_CHECK_IS_USER_ONLINE_RSP（1019）
 
 ```json
 { "error": 0, "online": "online" }
@@ -232,7 +280,7 @@ A 在线时由服务端主动推送（无请求、无需回包）：
 - 判定依据：Redis `uip_<uid>` 是否存在（即该用户 30s 内有过心跳）。
 - uid 解析失败时返回 `1020`（`REQUEST_VALUE_INVALID`）。
 
-## 9. gRPC 接口（ChatService）
+## 10. gRPC 接口（ChatService）
 
 ```protobuf
 service ChatService
@@ -261,40 +309,42 @@ message ReplyFriendReq
 message ReplyFriendRsp { int32 error = 1; }
 ```
 
-### 9.1 NotifyAddFriend
+### 10.1 NotifyAddFriend
 
 - 调用方：申请所在 ChatServer。
 - 服务方行为：按 `toUid` 查本实例会话；存在则推送 TCP `1009`，返回 `0`；不存在返回 `1019`（USER_OUTLINE）。
 
-### 9.2 ReplyAddFriend
+### 10.2 ReplyAddFriend
 
 - 调用方：接收人所在 ChatServer。
 - 服务方行为：按 `senderUid` 查本实例会话；存在则推送 TCP `1012`，返回 `0`；不存在返回 `1019`。
 - 注意：`senderUid` 是**原始申请人**，不是发起本次 RPC 的用户。
 
-### 9.3 调用约定
+### 10.3 调用约定
 
 - 超时 `deadline = 3s`；连接池不可用或 RPC 失败 → 返回 `1002`（RPC_FAILED）。
 - 服务端返回 `1019` 表示「对端用户不在线」，但调用方只记录告警，**不影响已经返回给客户端的 `1006` / `1011` 成功结果**——离线用户不会收到推送，但数据库记录已生效。
 
-## 10. 字段类型速查
+## 11. 字段类型速查
 
 不同消息里同一个编号字段的类型不一致，客户端务必区分：
 
-| 字段 | 出现位置 | JSON 类型 |
-|------|---------|-----------|
-| `add_friend_request_id` | `1006` / `1011` 响应、`1010` 请求 | **string** |
-| `add_friend_request_id` | `1009` 推送、`1012` 推送 | **number** |
-| `id` | `1008` 列表项 | **string** |
-| `count` | `1008` 响应 | **string** |
-| `state` | `1010` 请求 | **string**（`"1"` / `"2"`） |
-| `state` | `1012` 推送、`1008` 列表项 | **number** |
-| `uid` / `to_uid` / `from_uid` | 所有请求与响应 | **string** |
-| `sex` | `1008` 列表项 | **number** |
+| 字段                          | 出现位置                          | JSON 类型                   |
+|-------------------------------|-----------------------------------|-----------------------------|
+| `add_friend_request_id`       | `1006` / `1011` 响应、`1010` 请求 | **string**                  |
+| `add_friend_request_id`       | `1009` 推送、`1012` 推送          | **string**                  |
+| `id`                          | `1008` 列表项                     | **string**                  |
+| `count`                       | `1008` 响应                       | **string**                  |
+| `count`                       | `1021` 响应                       | **string**                  |
+| `nick`                        | `1008` / `1021` 列表项            | **string**                  |
+| `state`                       | `1010` 请求                       | **string**（`"1"` / `"2"`） |
+| `state`                       | `1012` 推送、`1008` 列表项        | **number**                  |
+| `uid` / `to_uid` / `from_uid` | 所有请求与响应                    | **string**                  |
+| `sex`                         | `1008` / `1021` 列表项            | **number**                  |
 
-## 11. 状态与错误码
+## 12. 状态与错误码
 
-### 11.1 FriendApplyStatus
+### 12.1 FriendApplyStatus
 
 | 值 | 枚举 | 含义 |
 |----|------|------|
@@ -302,7 +352,7 @@ message ReplyFriendRsp { int32 error = 1; }
 | `1` | `ACCEPTED` | 已接受 |
 | `2` | `REFUSEED` | 已拒绝 |
 
-### 11.2 新增错误码
+### 12.2 新增错误码
 
 | 值 | 枚举 | 含义 |
 |----|------|------|
@@ -311,11 +361,10 @@ message ReplyFriendRsp { int32 error = 1; }
 
 完整错误码见 [`error-codes.md`](error-codes.md)。
 
-## 12. 当前实现注意事项（⚠️）
+## 13. 当前实现注意事项（⚠️）
 
 以下与代码当前行为一致，供联调时参考：
 
-1. **编号字段类型不统一**：见 [§10](#10-字段类型速查)。
+1. **编号字段类型不统一**：见 [§11](#11-字段类型速查)。
 2. **`getNotifyUserIdInAuthFriendReq` 已实现但未被调用**：`authFriendRequestHandler` 直接使用 `handleFriendRequest` 回填的 `sender_uid`。
 3. **文本聊天相关消息（`1013`–`1015`）尚未注册处理函数**，收到会被当作未知消息丢弃。
-4. **`1008` 的 `nick` 取错列**：`MySqlDao.cpp:406` 用 `row.at(7)`（`remark`）判空，却取 `row.at(4)`（`message`）作为值，导致发送方拿到的 `nick` 实际是验证信息而不是备注。应改为 `row.at(7).as_string()`。

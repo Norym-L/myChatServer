@@ -191,6 +191,13 @@ void LogicSystem::registerCallBacks()
             {
                 authFriendRequestHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_SYNC_FRIEND_LIST_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                syncUserFriendList(session, message_data);
+            };
 }
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -559,9 +566,33 @@ void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& sess
     (void) GrpcAuthFriendRequestAndNotifyToOther(sender_uid, add_friend_request_id, state, user_ip);
 }
 
-void LogicSystem::getUserApplyListAndFriendList(const std::shared_ptr<CSession>&, const std::string& message_data)
+void LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    //TODO
+    HANDLER_PREFIX(MESSAGE_SYNC_FRIEND_LIST_RSP)
+
+    if (session->getUserId() == 0) // session未登录
+    {
+        return_value["error"] = ErrorCode::USER_UID_INVALID;
+        return;
+    }
+    const auto friend_list_only_uid_and_remark = MySqlManager::GetInstance().getUserFriendList(session->getUserId());
+
+    for (const auto& [remark, uid]: friend_list_only_uid_and_remark)
+    {
+        const auto friend_info = SearchUserByUid(uid);
+        if (!friend_info) continue;
+        Json::Value json_info;
+        json_info["uid"] = std::to_string(uid);
+        json_info["name"] = friend_info->name;
+        json_info["desc"] = friend_info->desc;
+        json_info["nick"] = remark;
+        json_info["sex"] = friend_info->sex;
+        json_info["icon"] = friend_info->icon;
+        return_value["friends"].append(json_info);
+    }
+
+    return_value["error"] = ErrorCode::SUCCESS;
+    return_value["count"] = std::to_string(return_value["friends"].size());
 }
 
 bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid, const std::string& user_ip)

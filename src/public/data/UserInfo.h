@@ -19,6 +19,16 @@ enum FriendApplyStatus : unsigned char // 是否接受
     REFUSEED, // 拒绝
 };
 
+struct UidAndRemarkInUserFriend
+{
+    UidAndRemarkInUserFriend(std::string remark, std::uint64_t uid)
+        : remark(std::move(remark)), uid(uid)
+    {}
+
+    std::string remark{};
+    std::uint64_t uid{};
+};
+
 struct UserInfo
 {
     UserInfo(std::string token, std::string name, std::string email, std::string desc, std::string icon, const std::uint64_t uid, const Sex sex)

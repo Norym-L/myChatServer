@@ -146,15 +146,17 @@ print(message_id, json.loads(body.decode()))
 
 好友申请 / 验证 / 在线查询等消息的完整字段、流程与错误码见独立文档 **[`api-friend.md`](api-friend.md)**。编号速查：
 
-| message_id | 名称 | 方向 |
-|-----------|------|------|
-| `1005` | `MESSAGE_ADD_FRIEND_REQ` | 客户端 → 服务端 |
-| `1006` | `MESSAGE_ADD_FRIEND_RSP` | 服务端 → 客户端 |
-| `1007` | `MESSAGE_SYNC_FRIEND_REQUEST_REQ` | 客户端 → 服务端 |
-| `1008` | `MESSAGE_SYNC_FRIEND_REQUEST_RSP` | 服务端 → 客户端 |
-| `1009` | `MESSAGE_NOTIFY_ADD_FRIEND_REQ` | 服务端 → 客户端（推送） |
-| `1010` | `MESSAGE_AUTH_FRIEND_REQ` | 客户端 → 服务端 |
-| `1011` | `MESSAGE_AUTH_FRIEND_RSP` | 服务端 → 客户端 |
-| `1012` | `MESSAGE_NOTIFY_AUTH_FRIEND_REQ` | 服务端 → 客户端（推送） |
-| `1018` | `MESSAGE_CHECK_IS_USER_ONLINE_REQ` | 客户端 → 服务端 |
-| `1019` | `MESSAGE_CHECK_IS_USER_ONLINE_RSP` | 服务端 → 客户端 |
+| message_id | 名称                               | 方向                    |
+|------------|------------------------------------|-------------------------|
+| `1005`     | `MESSAGE_ADD_FRIEND_REQ`           | 客户端 → 服务端         |
+| `1006`     | `MESSAGE_ADD_FRIEND_RSP`           | 服务端 → 客户端         |
+| `1007`     | `MESSAGE_SYNC_FRIEND_REQUEST_REQ`  | 客户端 → 服务端         |
+| `1008`     | `MESSAGE_SYNC_FRIEND_REQUEST_RSP`  | 服务端 → 客户端         |
+| `1009`     | `MESSAGE_NOTIFY_ADD_FRIEND_REQ`    | 服务端 → 客户端（推送） |
+| `1010`     | `MESSAGE_AUTH_FRIEND_REQ`          | 客户端 → 服务端         |
+| `1011`     | `MESSAGE_AUTH_FRIEND_RSP`          | 服务端 → 客户端         |
+| `1012`     | `MESSAGE_NOTIFY_AUTH_FRIEND_REQ`   | 服务端 → 客户端（推送） |
+| `1018`     | `MESSAGE_CHECK_IS_USER_ONLINE_REQ` | 客户端 → 服务端         |
+| `1019`     | `MESSAGE_CHECK_IS_USER_ONLINE_RSP` | 服务端 → 客户端         |
+| `1020`     | `MESSAGE_SYNC_FRIEND_LIST_REQ`     | 客户端 → 服务端         |
+| `1021`     | `MESSAGE_SYNC_FRIEND_LIST_RSP`     | 服务端 → 客户端         |

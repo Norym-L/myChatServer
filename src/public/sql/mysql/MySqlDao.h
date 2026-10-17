@@ -145,6 +145,7 @@ public:
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(std::uint64_t uid) const;
     [[nodiscard]] std::vector<std::shared_ptr<UserInfo> > getUser(const std::string& name) const;
     [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo> > getFriendRequestListByUid(uint64_t uid) const;
+    [[nodiscard]] std::vector<UidAndRemarkInUserFriend> getUserFriendList(uint64_t uid) const;
 
 private:
     template<typename... Args>
