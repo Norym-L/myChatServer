@@ -396,18 +396,19 @@ std::vector<std::shared_ptr<ApplyInfo> > MySqlDao::getFriendRequestListByUid(con
         {
             const auto is_send = row.at(1).as_uint64() == uid; // 是否为发送方
             const auto other_info = getUser(is_send ? row.at(2).as_uint64() : row.at(1).as_uint64());
-            auto user_info = std::make_shared<ApplyInfo>(
-                row.at(0).as_uint64(),
-                row.at(1).as_uint64(),
-                row.at(2).as_uint64(),
-                other_info->name,
-                row.at(4).is_null() ? std::string() : std::string(row.at(4).as_string()),
-                other_info->icon,
-                (!is_send || row.at(7).is_null()) ? std::string() : std::string(row.at(7).as_string()), // 如果不是发送方或备注为空，则返回空备注
-                other_info->sex,
-                static_cast<FriendApplyStatus>(row.at(3).as_int64())
+            apply_infos.emplace_back(
+                std::make_shared<ApplyInfo>(
+                    row.at(0).as_uint64(),
+                    row.at(1).as_uint64(),
+                    row.at(2).as_uint64(),
+                    other_info->name,
+                    row.at(4).is_null() ? std::string() : std::string(row.at(4).as_string()),
+                    other_info->icon,
+                    (!is_send || row.at(7).is_null()) ? std::string() : std::string(row.at(7).as_string()), // 如果不是发送方或备注为空，则返回空备注
+                    other_info->sex,
+                    static_cast<FriendApplyStatus>(row.at(3).as_int64())
+                    )
                 );
-            apply_infos.push_back(user_info);
         }
 
         return apply_infos;
