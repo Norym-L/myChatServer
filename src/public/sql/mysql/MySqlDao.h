@@ -144,7 +144,7 @@ public:
     [[nodiscard]] MatchResult checkIsPasswordMatchAccount(const std::string& password, std::uint64_t account) const;
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(std::uint64_t uid) const;
     [[nodiscard]] std::vector<std::shared_ptr<UserInfo> > getUser(const std::string& name) const;
-    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo> > getFriendRequestListByUid(uint64_t uid);
+    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo> > getFriendRequestListByUid(uint64_t uid) const;
 
 private:
     template<typename... Args>
@@ -219,11 +219,35 @@ private:
                 const auto& row = out_result.rows().at(0);
                 if (row.size() >= 2)
                 {
-                    // 第一列：request_id (BIGINT UNSIGNED -> uint64)
-                    request_id = row.at(0).as_uint64();
+                    // 先取错误码；@error_code 为 NULL 说明存储过程没有正常赋值，按数据库异常处理
+                    if (row.at(1).is_null())
+                    {
+                        return -11;
+                    }
                     const auto error_code = static_cast<int>(row.at(1).as_int64());
+
+                    // @request_id 在失败路径（申请不存在/重复处理等）下可能为 NULL，
+                    // 也可能因列定义为 BIGINT 而是有符号整型。as_uint64() 对这两种情况
+                    // 都会抛 std::invalid_argument，把真实错误码吞成 -11，因此必须先判型。
+                    if (row.at(0).is_null())
+                    {
+                        spdlog::debug("[MySqlDao] request_id is NULL, error_code: {}", error_code);
+                        return error_code != 0 ? error_code : -11;
+                    }
+                    if (row.at(0).is_uint64())
+                    {
+                        request_id = row.at(0).as_uint64();
+                    }
+                    else if (row.at(0).is_int64())
+                    {
+                        request_id = static_cast<std::uint64_t>(row.at(0).as_int64());
+                    }
+                    else
+                    {
+                        return error_code != 0 ? error_code : -11;
+                    }
+
                     spdlog::debug("[MySqlDao] request_id: {}, error_code: {}", request_id, error_code);
-                    // 第二列：error_code (INT -> int)
                     return error_code;
                 }
             }

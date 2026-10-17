@@ -55,7 +55,7 @@ std::vector<std::shared_ptr<UserInfo> > MySqlManager::getUser(const std::string&
     return m_mySqlDao.getUser(name);
 }
 
-std::vector<std::shared_ptr<ApplyInfo> > MySqlManager::getFriendRequestListByUid(const uint64_t uid)
+std::vector<std::shared_ptr<ApplyInfo> > MySqlManager::getFriendRequestListByUid(const uint64_t uid) const
 {
     return m_mySqlDao.getFriendRequestListByUid(uid);
 }

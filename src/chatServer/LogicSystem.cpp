@@ -204,8 +204,8 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     std::uint64_t uid{0};
     if (!uid_value.isString() || !uid_codec::ParseUid(uid_value.asString(), uid))
     {
-        spdlog::warn("[logic system] login with invalid uid: {}", root["uid"].toStyledString());
-        return_value["error"] = ErrorCode::USER_UID_INVALID;
+        spdlog::debug("[logic system] login with invalid uid: {}", root["uid"].asString());
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         return;
     }
 
@@ -373,7 +373,9 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
     if (!uid_codec::ParseUid(root["uid"].asString(), form_uid) ||
         !uid_codec::ParseUid(root["to_uid"].asString(), to_uid))
     {
-        spdlog::warn("[logic system] add friend request, parse uid failed, str is {} and {}", root["uid"].asString(), root["to_uid"].asString());
+        spdlog::debug("[logic system] add friend request, parse uid failed, str is {} and {}", root["uid"].asString(), root["to_uid"].asString());
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        return;
     }
     if (form_uid != session->getUserId())
     {
@@ -441,8 +443,8 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
     std::uint64_t uid{};
     if (!uid_codec::ParseUid(root["uid"].asString(), uid))
     {
-        spdlog::warn("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
-        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        spdlog::debug("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         return;
     }
     if (uid != session->getUserId())
@@ -468,6 +470,7 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
         value["icon"] = info->icon;
         value["sex"] = info->sex;
         value["state"] = info->status;
+        value["nick"] = info->nick; // 没有备注或是接收方则 nick备注 为空字符串
         return_value["apply_infos"].append(value);
     }
 }
@@ -479,8 +482,8 @@ void LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr<CSession>& sess
     std::uint64_t uid{};
     if (!uid_codec::ParseUid(root["uid"].asString(), uid))
     {
-        spdlog::warn("[logic system] check user online request, parse uid failed, str is {}", root["uid"].asString());
-        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        spdlog::debug("[logic system] check user online request, parse uid failed, str is {}", root["uid"].asString());
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         return;
     }
     spdlog::debug("[logic system] check user online request, check the uid {}", uid);
@@ -500,8 +503,8 @@ void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& sess
     std::uint64_t add_friend_request_id{};
     if (!uid_codec::ParseUid(root["add_friend_request_id"].asString(), add_friend_request_id))
     {
-        spdlog::warn("[logic system] authFriendRequestHandler, parse add_friend_request_id failed, str is {}", root["add_friend_request_id"].asString());
-        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        spdlog::debug("[logic system] authFriendRequestHandler, parse add_friend_request_id failed, str is {}", root["add_friend_request_id"].asString());
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         return;
     }
     int state{};

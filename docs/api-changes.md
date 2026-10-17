@@ -1,38 +1,125 @@
 # 接口变更记录
 
-## 2026-10-17（基线 `1387b28`）
+> 基线 `1387b28`。以下汇总自此基线的全部对外接口变更，涵盖提交 `4ecb304`（心跳与实例注册）、`5017e6b`（好友验证）及当前工作区。
 
-本次为聊天服心跳与实例注册能力，同时修掉一个 Redis 写入缺陷。
+## 1. 变更汇总
 
-### 1. 新增能力
-
-| 编号 | 内容 |
+| 类别 | 内容 |
 |------|------|
-| N1 | **TCP 心跳**：新增 `MESSAGE_HEART_BEAT_REQ`（`1016`）/ `MESSAGE_HEART_BEAT_RSP`（`1017`），客户端周期发送，服务端据此续期在线 key `uip_<uid>`（EX 30s） |
-| N2 | **实例自注册**：ChatServer 启动时向 Redis 写入 hash `serverlist`（`name → host:port`）、存活 key `serverheartbeat_<name>`（EX 30s）、连接数 key `logincount_<name>`（EX 30s），后台线程每 10s 续期；退出时摘除 |
-| N3 | **存活过滤分发**：StatusServer 分发时只考虑「`serverlist` 中存在该实例 **且** `serverheartbeat_<name>` 未过期」的实例，连接数取 `logincount_<name>`；若没有存活实例则回落为全部配置实例并告警 |
+| **新增** | TCP 心跳 `1016`/`1017`、在线查询 `1018`/`1019`、好友验证 `1010`–`1012`；gRPC `ReplyAddFriend`；Redis 实例自注册；错误码 `1020`/`1021` |
+| **修改** | 好友申请/同步/登录的参数校验与错误码；连接数语义；`ReplyFriendReq` 字段；`1008` 响应新增 `nick` |
+| **删除** | gRPC `NotifyAuthFriend`、`AuthFriendReq`、`AuthFriendRsp` |
+| **修复** | `HSET ... EX` 非法命令；`state` 校验恒真；登录数只增不减；`hSet` TTL 参数 |
 
-### 2. 行为变更（可能影响既有客户端 / 运维）
+## 2. 好友验证系统
+
+详细字段与流程见 [`api-friend.md`](api-friend.md)。
+
+### 2.1 TCP 消息
+
+| message_id | 名称 | 方向 | 说明 |
+|-----------|------|------|------|
+| `1005` | `MESSAGE_ADD_FRIEND_REQ` | 客户端 → 服务端 | 提交好友申请 |
+| `1006` | `MESSAGE_ADD_FRIEND_RSP` | 服务端 → 客户端 | 申请结果 |
+| `1007` | `MESSAGE_SYNC_FRIEND_REQUEST_REQ` | 客户端 → 服务端 | 拉取好友申请列表 |
+| `1008` | `MESSAGE_SYNC_FRIEND_REQUEST_RSP` | 服务端 → 客户端 | 列表回包（新增 `nick`） |
+| `1009` | `MESSAGE_NOTIFY_ADD_FRIEND_REQ` | 服务端 → 客户端（推送） | 收到新的好友申请 |
+| `1010` | `MESSAGE_AUTH_FRIEND_REQ` | 客户端 → 服务端 | 接受 / 拒绝申请（**新增处理**） |
+| `1011` | `MESSAGE_AUTH_FRIEND_RSP` | 服务端 → 客户端 | 处理结果（**新增**） |
+| `1012` | `MESSAGE_NOTIFY_AUTH_FRIEND_REQ` | 服务端 → 客户端（推送） | 申请被处理的结果（**新增**） |
+| `1018` | `MESSAGE_CHECK_IS_USER_ONLINE_REQ` | 客户端 → 服务端 | 查询用户是否在线（**新增编号**） |
+| `1019` | `MESSAGE_CHECK_IS_USER_ONLINE_RSP` | 服务端 → 客户端 | 在线状态回包（**新增编号**） |
+
+### 2.2 行为变更
 
 | 编号 | 接口 | 变更 |
 |------|------|------|
-| C1 | TCP 登录消息编号 | **文档修正**：登录请求 `1001`、登录回包 `1002`（历史文档写作 `0` / `1`，与 `const.h` 的 `enum MessageType` 不符；线格式未变） |
-| C2 | ChatServer 连接数 | 由「共享 hash `logincount_`，仅登录 +1、无 TTL、仅优雅退出时清理」改为「每实例独立 key `logincount_<name>`，EX 30s、登录 +1 / 断开 -1、随心跳续期」 |
-| C3 | 用户在线判定 | `uip_<uid>` 由「登录时写一次」改为「登录写入 + 客户端心跳续期」，30s 无心跳即判离线（他人加好友时不再尝试投递） |
+| F1 | `1005` 添加好友 | 新增「请求 `uid` 必须等于会话登录 uid」校验，不一致返回 `1011`；`uid` / `to_uid` 解析失败返回 `1020` |
+| F2 | `1006` 申请结果 | 错误码映射统一：`-1`/`-2` → `1011`，`-3` → `1015`，`-4` → `1016`，`-5` → `1018`，其余负值（含 `-10`/`-11`）→ `1013` |
+| F3 | `1010` / `1011` 处理申请 | 新增接口：请求 `{add_friend_request_id, state}`（均字符串，`state` 为 `1`/`2`）；响应回显 `add_friend_request_id` |
+| F4 | `1012` 处理结果推送 | 新增推送 `{error, add_friend_request_id(数字), state(1接受/2拒绝)}`，由 gRPC `ReplyAddFriend` 跨实例转发 |
+| F5 | `1007` / `1008` 同步列表 | 新增会话 uid 校验（不一致 `1011`）；`1008` 列表项新增 `nick`（备注，仅发送方视角有值） |
 
-### 3. 缺陷修复
+### 2.3 gRPC 变更（破坏性）
+
+```protobuf
+// 删除
+- rpc NotifyAuthFriend(AuthFriendReq) returns (AuthFriendRsp) {}
+- message AuthFriendReq { uint64 fromUid = 1; uint64 toUid = 2; }
+- message AuthFriendRsp { int32 error = 1; uint64 fromUid = 2; uint64 toUid = 3; }
+
+// 新增
++ rpc ReplyAddFriend(ReplyFriendReq) returns (ReplyFriendRsp) {}
++ message ReplyFriendReq {
++   uint64 senderUid = 1;            // 原申请人，即需要接收结果通知的人
++   uint64 addFriendRequestId = 2;
++   int32  state = 3;                // 1 接受，2 拒绝
++ }
++ message ReplyFriendRsp { int32 error = 1; }
+```
+
+- `NotifyAddFriend` / `ReplyAddFriend`：目标用户不在本实例时返回 `1019`（USER_OUTLINE）。
+- 客户端调用超时 `3s`，连接池不可用或 RPC 失败 → `1002`。
+- `ReplyFriendReq` 由 `fromUid/toUid/agree` 改为 `senderUid/addFriendRequestId/state`；`ReplyFriendRsp` 移除 `fromUid`/`toUid`。
+
+### 2.4 存储层
+
+- `handleFriendRequest` 增加输出参数 `sender_uid`，存储过程改为 `handle_friend_request(?, ?, ?, @request_id, @error_code)`。
+- 新增 `getNotifyUserIdInAuthFriendReq`（调用 `get_request_sender_uid`，当前未被使用）。
+- `getFriendRequestListByUid` 改为 `const`；查询补充 `remark` 列，用于填充 `nick`。
+- `UidCodec` 新增 `ParseNumber<T>`（基于 `from_chars`，`noexcept`），`ParseUid` 复用它。
+
+## 3. 心跳与实例注册
 
 | 编号 | 内容 |
 |------|------|
-| F1 | `RedisManager::hSet(key, field, value, ex)` 会拼出 `HSET ... EX <n>`（Redis 的 `HSET` 不支持 `EX`），恒返回失败；已移除 `ex` 参数并复用正确的 argv 版 `HSET`。此前 `logincount` 的写入始终失败 |
+| N1 | **TCP 心跳**：新增 `MESSAGE_HEART_BEAT_REQ`（`1016`）/ `MESSAGE_HEART_BEAT_RSP`（`1017`），客户端周期发送，服务端续期在线 key `uip_<uid>`（EX 30s） |
+| N2 | **实例自注册**：ChatServer 启动时写入 hash `serverlist`（`name → host:port`）、`serverheartbeat_<name>`（EX 30s）、`logincount_<name>`（EX 30s），后台线程每 10s 续期，退出时摘除 |
+| N3 | **存活过滤分发**：StatusServer 只考虑「`serverlist` 存在且 `serverheartbeat_<name>` 未过期」的实例，连接数取 `logincount_<name>`；无存活实例时回落全量并告警 |
 
-### 4. 未变动的部分
+## 4. 其他行为变更
 
-- `proto/message.proto` 未修改。
-- TCP 帧头格式（`[message_id:2][body_len:2][body]`）与消息大小上限未变。
-- HTTP 接口与 `enum ErrorCode` 的取值未变（[`error-codes.md`](error-codes.md) 仅补齐了此前遗漏的 `1015` / `1016` / `1018` / `1019` 条目）。
+| 编号 | 接口 | 变更 |
+|------|------|------|
+| C1 | TCP 登录消息编号 | **文档修正**：登录请求 `1001`、登录回包 `1002`（历史文档写作 `0` / `1`，与 `const.h` 不符；线格式未变） |
+| C2 | ChatServer 连接数 | 由「共享 hash `logincount_`，仅登录 +1、无 TTL」改为「`logincount_<name>`，EX 30s、登录 +1 / 断开 -1、随心跳续期」 |
+| C3 | 用户在线判定 | `uip_<uid>` 由「登录时写一次」改为「登录写入 + 客户端心跳续期」，30s 无心跳即判离线 |
+| C4 | TCP 登录非法 uid | 非字符串 / 空串 / 含非数字字符的 `uid` 由返回 `1011` 改为 `1020`（`REQUEST_VALUE_INVALID`） |
+| C5 | 各 TCP 接口参数解析 | `1005` / `1007` / `1010` / `1018` 中 uid / 编号 / state 解析失败统一返回 `1020`（此前为 `1013` 或未显式设置） |
 
-## 2026-09-22（commit `6785e4b`，基线 `4f49d1f`）
+## 5. 错误码
+
+| 编号 | 内容 |
+|------|------|
+| E1 | 新增 `1020 REQUEST_VALUE_INVALID`（客户端请求数据非法） |
+| E2 | 新增 `1021 DOUBLE_HANDLE_REQUEST`（重复处理好友申请） |
+| E3 | `1019 USER_OUTLINE` 的典型位置补充 gRPC `ReplyAddFriend` |
+| E4 | `error-codes.md` 补齐此前遗漏的 `1015` / `1016` / `1018` / `1019` 条目（`enum ErrorCode` 取值本身未变） |
+
+## 6. 缺陷修复
+
+| 编号 | 内容 |
+|------|------|
+| B1 | `RedisManager::hSet(key, field, value, ex)` 拼出 `HSET ... EX <n>`（Redis 不支持），恒失败；已移除 `ex` 参数并复用正确的 argv 版 `HSET` |
+| B2 | `authFriendRequestHandler` 的 `state != 1 || state != 2` 恒为真，导致所有 `1010` 请求被拒；改为 `state != 1 && state != 2` |
+| B3 | 登录连接数「只增不减」：断开时递减，并改为带 TTL 的每实例 key，崩溃后自动清零 |
+| B4 | 移除 `sendFriendRequestHandler` 中未使用的 `user_self_info` 变量 |
+
+## 7. 文档
+
+- 新增 [`api-friend.md`](api-friend.md)：好友验证系统完整接口（申请 / 验证 / 通知 / 列表 / 在线查询 / gRPC）。
+- [`README.md`](README.md)：新增「1.2 Redis 键位」表，并补充文档索引。
+- [`api-tcp.md`](api-tcp.md)：修正登录消息编号、补充心跳与在线查询、好友接口收敛到 `api-friend.md`。
+- [`error-codes.md`](error-codes.md)：补齐 `1015`–`1021`。
+
+## 8. 未变动的部分
+
+- HTTP 接口与 `error` 字段语义未变。
+- TCP 帧头格式（`[message_id:2][body_len:2][body]`）与单帧大小上限未变。
+- `enum MessageType` / `enum ErrorCode` 的既有取值未变，新增值均追加在末尾。
+- 除 `ChatService` 的好友相关 RPC 外，`proto/message.proto` 的其余消息字段编号未变。
+
+## 附：2026-09-22 历史变更（commit `6785e4b`，基线 `4f49d1f`）
 
 本次为代码审查后的缺陷修复批次，共涉及 **30+ 项**修复。其中影响对外接口契约的部分如下。
 

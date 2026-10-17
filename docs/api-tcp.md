@@ -40,7 +40,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 ```
 
 - `uid` / `token` 取自 `POST /user_login` 的响应；`uid` 为**字符串**，服务端内部按 `std::uint64_t` 处理。
-- 非字符串、空串或含非数字字符的 `uid` → 直接回 `1011`（不查询 Redis / MySQL）。
+- 非字符串、空串或含非数字字符的 `uid` → 直接回 `1020`（`REQUEST_VALUE_INVALID`，不查询 Redis / MySQL）。
 - 服务端将 `uid` 与 `token` 提交给 StatusServer 的 `StatusService.Login` 校验。
 
 ### 2.2 MESSAGE_CHAT_LOGIN_RSP（1002）
@@ -63,7 +63,8 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 | error | 含义 |
 | ------- | ------ |
 | `0` | 登录成功（此时才会携带 `uid` / `token` / `name`） |
-| `1011` | uid 校验失败：客户端 uid 不是合法字符串，**或** StatusServer 中不存在该 uid 的 token，**或**登录后回查用户信息失败（数据库无该 uid / 数据库不可用） |
+| `1020` | uid 不是合法字符串（非字符串、空串或含非数字字符），未查询 Redis / MySQL |
+| `1011` | StatusServer 中不存在该 uid 的 token，**或**登录后回查用户信息失败（数据库无该 uid / 数据库不可用） |
 | `1012` | token 与服务端记录不一致 |
 | `1002` | 调用 StatusServer 失败或超时 |
 

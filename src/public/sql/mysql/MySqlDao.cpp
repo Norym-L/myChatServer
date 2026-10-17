@@ -370,7 +370,7 @@ std::vector<std::shared_ptr<UserInfo> > MySqlDao::getUser(const std::string& nam
     return {};
 }
 
-std::vector<std::shared_ptr<ApplyInfo> > MySqlDao::getFriendRequestListByUid(const uint64_t uid)
+std::vector<std::shared_ptr<ApplyInfo> > MySqlDao::getFriendRequestListByUid(const uint64_t uid) const
 {
     auto connection = m_pool->getConnection();
     if (!connection)
@@ -380,7 +380,7 @@ std::vector<std::shared_ptr<ApplyInfo> > MySqlDao::getFriendRequestListByUid(con
 
     try
     {
-        const auto sql = connection->connection->prepare_statement("SELECT `id`, `applicant_uid`, `receiver_uid`, `status`, `message`, `created_at`, `updated_at` FROM `friend_request` WHERE (`applicant_uid` = ? OR `receiver_uid` = ?) ORDER BY created_at DESC"); // 获取与当前用户相关的好友请求（我发出的 + 我收到的）
+        const auto sql = connection->connection->prepare_statement("SELECT `id`, `applicant_uid`, `receiver_uid`, `status`, `message`, `created_at`, `updated_at` , `remark` FROM `friend_request` WHERE (`applicant_uid` = ? OR `receiver_uid` = ?) ORDER BY created_at DESC"); // 获取与当前用户相关的好友请求（我发出的 + 我收到的）
         mysql::results result;
         connection->connection->execute(sql.bind(uid, uid), result);
         if (result.rows().empty())
@@ -391,10 +391,11 @@ std::vector<std::shared_ptr<ApplyInfo> > MySqlDao::getFriendRequestListByUid(con
 
         m_pool->returnConnection(std::move(connection));
         std::vector<std::shared_ptr<ApplyInfo> > apply_infos;
-        // const auto row = result.rows().at(0);
+
         for (const auto& row: result.rows())
         {
-            const auto other_info = getUser(row.at(1).as_uint64() == uid ? row.at(2).as_uint64() : row.at(1).as_uint64());
+            const auto is_send = row.at(1).as_uint64() == uid; // 是否为发送方
+            const auto other_info = getUser(is_send ? row.at(2).as_uint64() : row.at(1).as_uint64());
             auto user_info = std::make_shared<ApplyInfo>(
                 row.at(0).as_uint64(),
                 row.at(1).as_uint64(),
@@ -402,7 +403,7 @@ std::vector<std::shared_ptr<ApplyInfo> > MySqlDao::getFriendRequestListByUid(con
                 other_info->name,
                 row.at(4).is_null() ? std::string() : std::string(row.at(4).as_string()),
                 other_info->icon,
-                std::string(),
+                (!is_send || row.at(7).is_null()) ? std::string() : std::string(row.at(7).as_string()), // 如果不是发送方或备注为空，则返回空备注
                 other_info->sex,
                 static_cast<FriendApplyStatus>(row.at(3).as_int64())
                 );
