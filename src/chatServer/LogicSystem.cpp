@@ -566,6 +566,8 @@ void LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& sessio
     //  -> redis的离线序列 -> 查询是否在线 -> 发送到指定用户 -> 接收用户回包显示接收到 -> 删除redis等待序列数据
     HANDLER_PREFIX(MESSAGE_TEXT_CHAT_MSG_RSP)
 
+    return_value["msg_id"] = root["msg_id"].asString(); // 客户端用于识别消息的id 字符串传递
+
     std::uint64_t to_uid{};
     int message_type{};
     if (!uid_codec::ParseUid(root["to_uid"].asString(), to_uid) ||
