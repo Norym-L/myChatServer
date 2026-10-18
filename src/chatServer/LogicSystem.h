@@ -43,6 +43,10 @@ private:
     void sendTextMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 获取好友列表
     void syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    // 同步聊天消息 客户端开始统计消息条数 > 10 或是 超时 则拉取消息
+    void syncChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    // 客户端确认收到聊天消息 客户端收到消息->发送服务器确认
+    void ackChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
 
     [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);
     [[nodiscard]] static bool GrpcAuthFriendRequestAndNotifyToOther(std::uint64_t sender_uid, std::uint64_t add_friend_request_id, int state, const std::string& user_ip); // FriendApplyStatus
@@ -70,5 +74,10 @@ Defer defer([this, &return_value, session]()\
         const std::string return_str = return_value.toStyledString();\
         session->send(return_str.c_str(), return_str.size(), MessageType::message_type);\
     });
+
+#define HANDLER_PREFIX_WITHOUT_RSP \
+Json::Reader reader;\
+Json::Value root;\
+reader.parse(message_data, root);
 
 #endif //GATESERVER_LOGICSYSTEM_H

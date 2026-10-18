@@ -62,7 +62,11 @@ enum MessageType : std::uint16_t
     MESSAGE_CHECK_IS_USER_ONLINE_RSP, //查询用户是否在线请求回包
     MESSAGE_SYNC_FRIEND_LIST_REQ,     //获取好友列表
     MESSAGE_SYNC_FRIEND_LIST_RSP,     //获取好友列表回包
-    MESSAGE_NOTIFY_RECEIVE_MESSAGE,   // 通知客户端有新的消息
+    MESSAGE_NOTIFY_RECEIVE_MESSAGE,   //通知客户端有新的消息
+    MESSAGE_SYNC_CHAT_MESSAGE_REQ,    //同步、获取接收聊天消息
+    MESSAGE_SYNC_CHAT_MESSAGE_RSP,    //同步、获取接收聊天消息回包
+    MESSAGE_ACK_CHAT_MESSAGE_REQ,     //客户端确认收到消息
+    MESSAGE_ACK_CHAT_MESSAGE_RSP,     //客户端确认收到消息回包
 };
 
 #include <fmt/format.h>

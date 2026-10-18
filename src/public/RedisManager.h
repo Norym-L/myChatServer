@@ -58,6 +58,7 @@ public:
     void insert(const std::shared_ptr<UserInfo>& user_info, long ex = 500) const;
     void insert(const std::vector<std::shared_ptr<UserInfo> >& user_infos, long ex = 500) const;
     void insertMessageToOffline(const chat_message::Message& message) const;
+    void ackAndDelChatMessages(std::uint64_t to_uid, const std::vector<std::string>& message_ids) const;
     [[nodiscard]] std::vector<chat_message::Message> getMessageFromOffline(std::uint64_t to_uid, std::uint64_t count = 1) const;
     /// 获取用户ip，用户不在线返回空字符串
     [[nodiscard]] std::string isUserOnLine(std::uint64_t uid) const;

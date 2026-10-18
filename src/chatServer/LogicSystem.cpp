@@ -205,6 +205,20 @@ void LogicSystem::registerCallBacks()
             {
                 sendTextMessageHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_SYNC_CHAT_MESSAGE_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                syncChatMessageHandler(session, message_data);
+            };
+
+    m_callbackFunctions[MessageType::MESSAGE_ACK_CHAT_MESSAGE_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                ackChatMessageHandler(session, message_data);
+            };
 }
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -639,6 +653,59 @@ void LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, c
 
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["count"] = std::to_string(return_value["friends"].size());
+}
+
+void LogicSystem::syncChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_SYNC_CHAT_MESSAGE_RSP)
+
+    std::uint64_t count{};
+    if (!uid_codec::ParseNumber(root["count"].asString(), count) || count > 10) // 不能一次拉取超过10条
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        return;
+    }
+
+    const auto messages = RedisManager::GetInstance().getMessageFromOffline(session->getUserId(), count); // 拉取 count 条
+    return_value["error"] = ErrorCode::SUCCESS;
+    return_value["count"] = messages.size();
+    for (const auto& message: messages)
+    {
+        if (!message.is_to_group)
+        {
+            Json::Value value;
+            value["type"] = message.type;
+            value["from_uid"] = std::to_string(message.from_uid);
+            value["body"] = message.body;
+            value["id"] = message.message_id; // redis 自动生成的唯一消息id（毫秒时间戳-序列号）
+            return_value["msgs"].append(value);
+        }
+        else
+        {
+            // TODO 群聊消息待完善
+            continue;
+        }
+    }
+}
+
+void LogicSystem::ackChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_ACK_CHAT_MESSAGE_RSP)
+
+    if (!root["ids"].isArray() || root["ids"].size() > 10) // 不能一次确认10条以上
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        return;
+    }
+
+    std::vector<std::string> message_ids;
+    for (const auto& id: root["ids"])
+    {
+        message_ids.push_back(id.asString());
+    }
+
+    RedisManager::GetInstance().ackAndDelChatMessages(session->getUserId(), message_ids);
+    return_value["error"] = ErrorCode::SUCCESS;
 }
 
 bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid, const std::string& user_ip)

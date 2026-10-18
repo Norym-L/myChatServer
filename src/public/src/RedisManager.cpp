@@ -7,6 +7,7 @@
 
 #include <ConfigManager.h>
 #include <json/reader.h>
+#include <sodium/crypto_box_curve25519xchacha20poly1305.h>
 
 #include "Defer.h"
 
@@ -115,6 +116,36 @@ void RedisConnectPool::close()
     m_beStop = true;
     m_condition.notify_all();
 }
+
+struct ArgvBuilder
+{
+    std::vector<const char*> argv;
+    std::vector<std::size_t> argvlen;
+
+    void reserve(std::size_t n)
+    {
+        argv.reserve(n);
+        argvlen.reserve(n);
+    }
+
+    void push(const char* data, std::size_t len)
+    {
+        argv.push_back(data);
+        argvlen.push_back(len);
+    }
+
+    void push(const std::string& s)
+    {
+        argv.push_back(s.data());
+        argvlen.push_back(s.size());
+    }
+
+    void pushLiteral(const char* lit, std::size_t len)
+    {
+        argv.push_back(lit);
+        argvlen.push_back(len);
+    }
+};
 }
 
 RedisManager::RedisManager()
@@ -213,6 +244,109 @@ void RedisManager::insertMessageToOffline(const chat_message::Message& message) 
               }))
     {
         spdlog::warn("[redis] redis insert text_message failed!");
+    }
+}
+
+void RedisManager::ackAndDelChatMessages(const std::uint64_t to_uid, const std::vector<std::string>& message_ids) const
+{
+    if (message_ids.empty())
+    {
+        return;
+    }
+
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return;
+    }
+
+    const std::string stream_name = USER_OFFLINE_MESSAGE_STREAM + std::to_string(to_uid);
+    const std::string group_name = USER_XGROUP_NAME + std::to_string(to_uid);
+
+    redisReply* reply = nullptr;
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    static constexpr std::size_t kBatchSize = 512;
+
+    // 脚本参数: KEYS[1]=stream, ARGV[1]=group, ARGV[2..]=ids
+    // 返回 XDEL 实际删除的条数；n<=0 时直接返回 0
+    static constexpr char kScript[] =
+        "local n = #ARGV - 1\n"
+        "if n <= 0 then return 0 end\n"
+        "redis.call('XACK', KEYS[1], ARGV[1], unpack(ARGV, 2, #ARGV))\n"
+        "return redis.call('XDEL', KEYS[1], unpack(ARGV, 2, #ARGV))\n";
+
+    for (std::size_t offset = 0; offset < message_ids.size(); offset += kBatchSize)
+    {
+        const std::size_t end = std::min(offset + kBatchSize, message_ids.size());
+        const std::size_t count = end - offset;
+
+        detail::ArgvBuilder b;
+        b.reserve(5 + count);
+        b.pushLiteral("EVAL", 4);
+        b.pushLiteral(kScript, sizeof(kScript) - 1);
+        b.pushLiteral("1", 1); // numkeys = 1
+        b.push(stream_name);   // KEYS[1]
+        b.push(group_name);    // ARGV[1]
+        for (std::size_t i = offset; i < end; ++i)
+        {
+            b.push(message_ids[i]); // ARGV[2..]
+        }
+
+        // 注意：这里每次循环都复用局部 reply，但要先释放上一轮的
+        if (reply)
+        {
+            freeReplyObject(reply);
+            reply = nullptr;
+        }
+
+        reply = static_cast<redisReply*>(
+            redisCommandArgv(connect,
+                             static_cast<int>(b.argv.size()),
+                             b.argv.data(),
+                             b.argvlen.data()));
+
+        if (reply == nullptr)
+        {
+            spdlog::warn("[redis] ackDel chat (EVAL) null reply, uid={}, offset={}",
+                         to_uid, offset);
+            return;
+        }
+        if (reply->type == REDIS_REPLY_ERROR)
+        {
+            spdlog::warn("[redis] ackDel chat (EVAL) error: {}, uid={}",
+                         reply->str ? reply->str : "(no detail)", to_uid);
+            return;
+        }
+        if (reply->type == REDIS_REPLY_INTEGER)
+        {
+            if (reply->integer < static_cast<long long>(count))
+            {
+                // 不是失败：可能部分 ID 早已被删除，XDEL 返回的是实际删除数
+                spdlog::debug("[redis] ackDel chat uid={}, requested={}, deleted={}",
+                              to_uid, count, reply->integer);
+            }
+        }
     }
 }
 

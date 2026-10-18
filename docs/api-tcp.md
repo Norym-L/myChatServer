@@ -144,15 +144,19 @@ print(message_id, json.loads(body.decode()))
 
 ## 6. 聊天消息接口
 
-聊天消息的发送 / 新消息通知 / Redis Stream 存储见独立文档 **[`api-chat.md`](api-chat.md)**。编号速查：
+聊天消息的发送 / 通知 / 拉取 / 确认收到 / Redis Stream 存储见独立文档 **[`api-chat.md`](api-chat.md)**。编号速查：
 
 | message_id | 名称                             | 方向                    | 说明                 |
 |------------|----------------------------------|-------------------------|----------------------|
 | `1013`     | `MESSAGE_TEXT_CHAT_MSG_REQ`      | 客户端 → 服务端         | 发送消息             |
 | `1014`     | `MESSAGE_TEXT_CHAT_MSG_RSP`      | 服务端 → 客户端         | 发送回执             |
 | `1022`     | `MESSAGE_NOTIFY_RECEIVE_MESSAGE` | 服务端 → 客户端（推送） | 有新消息（不含内容） |
+| `1023`     | `MESSAGE_SYNC_CHAT_MESSAGE_REQ`  | 客户端 → 服务端         | 拉取消息             |
+| `1024`     | `MESSAGE_SYNC_CHAT_MESSAGE_RSP`  | 服务端 → 客户端         | 拉取回包             |
+| `1025`     | `MESSAGE_ACK_CHAT_MESSAGE_REQ`   | 客户端 → 服务端         | 确认收到消息         |
+| `1026`     | `MESSAGE_ACK_CHAT_MESSAGE_RSP`   | 服务端 → 客户端         | 确认回包             |
 
-> `MESSAGE_NOTIFY_CHAT_MSG_REQ`（`1015`）已定义但未使用；消息拉取接口尚未实现。
+> `MESSAGE_NOTIFY_CHAT_MSG_REQ`（`1015`）已定义但未使用。
 
 ## 7. 好友相关接口
 
