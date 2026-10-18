@@ -270,59 +270,69 @@ std::vector<chat_message::Message> RedisManager::getMessageFromOffline(const std
                 m_connectPool->returnConnection(connect);
             }
         });
-    if (reply == nullptr)
-    {
-        // 命令本身失败（通常 connect->err 也被设置），defer 会销毁连接
-        return {};
-    }
-    if (reply->type == REDIS_REPLY_ERROR)
-    {
-        return {};
-    }
+    if (reply == nullptr) return {};
+    if (reply->type == REDIS_REPLY_ERROR || reply->type == REDIS_REPLY_NIL) return {};
+    if (reply->type != REDIS_REPLY_ARRAY || reply->elements < 1) return {}; // 无消息时 elements==0
 
-    if (reply->type == REDIS_REPLY_ARRAY)
+    std::vector<chat_message::Message> messages;
+
+    for (std::size_t s = 0; s < reply->elements; ++s)
     {
-        std::vector<chat_message::Message> messages;
-        const auto* message = reply->element[1];
-        for (std::size_t i = 0; i < message->elements; ++i)
+        const redisReply* stream = reply->element[s];
+        if (stream == nullptr || stream->type != REDIS_REPLY_ARRAY || stream->elements < 2)
+            continue;
+
+        // stream->element[0] = stream name, stream->element[1] = entries
+        const redisReply* entries = stream->element[1];
+        if (entries == nullptr || entries->type != REDIS_REPLY_ARRAY)
+            continue;
+
+        messages.reserve(messages.size() + entries->elements);
+
+        for (std::size_t i = 0; i < entries->elements; ++i)
         {
-            chat_message::Message msg;
-            const auto* message_info = message->element[i];
-            // message_info->element[0] 是消息 ID (REDIS_REPLY_STRING)
-            msg.message_id = std::string(message_info->element[0]->str, message_info->element[0]->len);
-            // message_info->element[1] 是字段值对列表 (REDIS_REPLY_ARRAY)
-            const auto* key_values = message_info->element[1];
-            for (size_t j = 0; j < key_values->elements; j += 2)
-            {
-                const redisReply* field_name = key_values->element[j];
-                const redisReply* field_value = key_values->element[j + 1];
-                // 处理 field_name 和 field_value
-                if (field_name->type != REDIS_REPLY_STRING || field_value->type != REDIS_REPLY_STRING)
-                {
-                    continue; // 理论上不会发生，防御性处理
-                }
+            const redisReply* info = entries->element[i];
+            if (info == nullptr || info->type != REDIS_REPLY_ARRAY || info->elements < 2)
+                continue;
 
-                std::string key(field_name->str, field_name->len);
-                std::string value(field_value->str, field_value->len);
-                if (key == "from_uid")
+            const redisReply* id = info->element[0];
+            const redisReply* kv = info->element[1];
+            if (id == nullptr || id->type != REDIS_REPLY_STRING) continue;
+            if (kv == nullptr || kv->type != REDIS_REPLY_ARRAY || kv->elements % 2 != 0) continue;
+
+            chat_message::Message msg{};
+            msg.message_id.assign(id->str ? id->str : "", id->len);
+
+            for (std::size_t j = 0; j + 1 < kv->elements; j += 2)
+            {
+                const redisReply* fn = kv->element[j];
+                const redisReply* fv = kv->element[j + 1];
+                if (fn == nullptr || fv == nullptr ||
+                    fn->type != REDIS_REPLY_STRING ||
+                    fv->type != REDIS_REPLY_STRING)
+                    continue;
+
+                std::string key(fn->str ? fn->str : "", fn->len);
+                std::string value(fv->str ? fv->str : "", fv->len);
+
+                try
                 {
-                    msg.from_uid = std::stoull(value);
+                    if (key == "from_uid") msg.from_uid = std::stoull(value);
+                    else if (key == "type") msg.type = static_cast<chat_message::Type>(std::stoi(value));
+                    else if (key == "body") msg.body = std::move(value);
                 }
-                else if (key == "type")
+                catch (const std::exception&)
                 {
-                    msg.type = static_cast<chat_message::Type>(std::stoi(value));
-                }
-                else if (key == "body")
-                {
-                    msg.body = value;
+                    /* 数据损坏，跳过 */
+                    continue;
                 }
             }
-            messages.push_back(msg);
+
+            messages.push_back(std::move(msg));
         }
-        return messages;
     }
 
-    return {};
+    return messages;
 }
 
 std::string RedisManager::isUserOnLine(const std::uint64_t uid) const
