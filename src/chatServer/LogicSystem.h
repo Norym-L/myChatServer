@@ -73,6 +73,23 @@ Defer defer([this, &return_value, session]()\
         (void) this;\
         const std::string return_str = return_value.toStyledString();\
         session->send(return_str.c_str(), return_str.size(), MessageType::message_type);\
+    });\
+if (session->getUserId() == 0)\
+{\
+    return_value["error"] = ErrorCode::USER_UID_INVALID;\
+    return;\
+}
+
+#define HANDLER_PREFIX_WITHOUT_CHECK_LOGIN(message_type) \
+Json::Reader reader;\
+Json::Value root;\
+reader.parse(message_data, root);\
+Json::Value return_value;\
+Defer defer([this, &return_value, session]()\
+    {\
+        (void) this;\
+        const std::string return_str = return_value.toStyledString();\
+        session->send(return_str.c_str(), return_str.size(), MessageType::message_type);\
     });
 
 #define HANDLER_PREFIX_WITHOUT_RSP \

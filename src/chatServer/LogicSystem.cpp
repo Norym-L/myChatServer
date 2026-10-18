@@ -223,7 +223,7 @@ void LogicSystem::registerCallBacks()
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    HANDLER_PREFIX(MESSAGE_CHAT_LOGIN_RSP)
+    HANDLER_PREFIX_WITHOUT_CHECK_LOGIN(MESSAGE_CHAT_LOGIN_RSP)
 
     // 客户端 uid 统一为字符串：非字符串或非纯数字一律按非法 uid 处理，避免 jsoncpp 抛异常
     const Json::Value& uid_value = root["uid"];
@@ -633,11 +633,6 @@ void LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, c
 {
     HANDLER_PREFIX(MESSAGE_SYNC_FRIEND_LIST_RSP)
 
-    if (session->getUserId() == 0) // session未登录
-    {
-        return_value["error"] = ErrorCode::USER_UID_INVALID;
-        return;
-    }
     const auto friend_list_only_uid_and_remark = MySqlManager::GetInstance().getUserFriendList(session->getUserId());
 
     for (const auto& [remark, uid]: friend_list_only_uid_and_remark)
