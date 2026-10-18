@@ -4,12 +4,12 @@
 
 ## 1. 变更汇总
 
-| 类别       | 内容                                                                                                                                             |
-|------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| **新增**   | TCP `1022 MESSAGE_NOTIFY_RECEIVE_MESSAGE`；gRPC `ChatService.NotifyChatMessage`；TCP `1023`–`1026` 拉取 / 确认（ACK）；Redis Stream 离线消息存储 |
-| **变更**   | TCP `1013` / `1014` 由「已定义未实现」变为**已实现**（发送消息 + 回执；`1014` 回显客户端 `msg_id`）                                              |
-| **删除**   | gRPC `ChatService.SendChatMessage`、`NotifyTextChatMessage` 及其全部消息定义                                                                     |
-| **未实现** | 历史记录；群聊                                                                                                                                   |
+| 类别       | 内容                                                                                                                                                                          |
+|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **新增**   | TCP `1022 MESSAGE_NOTIFY_RECEIVE_MESSAGE`；gRPC `ChatService.NotifyChatMessage`；TCP `1023`–`1026` 拉取 / 确认（ACK）；Redis Stream 离线消息存储；PEL 重投（拉取时 PEL 优先） |
+| **变更**   | TCP `1013` / `1014` 由「已定义未实现」变为**已实现**（发送消息 + 回执；`1014` 回显客户端 `msg_id`；登录 `1002` 新增 `has_pending`）                                           |
+| **删除**   | gRPC `ChatService.SendChatMessage`、`NotifyTextChatMessage` 及其全部消息定义                                                                                                  |
+| **未实现** | 历史记录；群聊                                                                                                                                                                |
 
 详细字段与流程见 [`api-chat.md`](api-chat.md)。
 
@@ -108,7 +108,8 @@
 
 - `count` 为 **数字**（本次返回条数）；`msgs` 无消息时不出现。
 - `msgs[].id` 为 Redis Stream 消息编号，ACK 时使用。
-- 使用 `XREADGROUP ... >`：只返回尚未投递的消息，已拉取未 ACK 的消息不会重复返回。
+- 服务端先读 PEL（`XREADGROUP ... 0`），PEL 为空再读新消息（`XREADGROUP ... >`）；PEL 非空时本次只返回 PEL 消息。
+- 未 ACK 的消息会在下次拉取（包括重连后）重复返回，客户端按 `msgs[].id` 去重。
 - `count` 请求字段为字符串，取值 `0`–`10`；解析失败或 `> 10` 返回 `1020`。
 
 ### 2.4 确认收到（1025 / 1026）
@@ -132,7 +133,7 @@
 ```
 
 - `ids` 必须是数组且 **最多 10 个**，否则返回 `1020`。
-- 服务端执行 `XACK + XDEL`（Lua，批量 512）：确认后消息从 Stream 删除，无历史记录。
+- 服务端执行 `XACKDEL <stream> <group> ACKED IDS <n> <ids...>`（需 Redis 8.2+）：确认后消息从 Stream 删除，无历史记录。
 - 不存在 / 已确认的 ID 会被忽略，不报错。
 
 ## 3. gRPC 变更（破坏性）
@@ -164,16 +165,16 @@ service ChatService
 
 ## 4. 消息存储
 
-| 项                 | 值                                                                         |
-|--------------------|----------------------------------------------------------------------------|
-| Stream key（单聊） | `offlinestream_<to_uid>`                                                   |
-| Stream key（群聊） | `offlinestream_group_<to_uid>`（未启用）                                   |
-| 消费组             | `userxgroup_<uid>`，登录时由 `RedisManager::registUser` 创建（`MKSTREAM`） |
-| 字段               | `from_uid`、`type`、`body`（均为字符串）                                   |
-| 消息编号           | Redis Stream 生成的 `<毫秒>-<序号>`，通过 `1024` 返回给接收方              |
-| 保留策略           | `XADD ... MINID ~ <now - 7天>-0`，约 7 天                                  |
-| 读取               | `getMessageFromOffline`（`XREADGROUP ... >`），由 `1023` 调用              |
-| 确认               | `ackAndDelChatMessages`（Lua `XACK + XDEL`，批量 512），由 `1025` 调用     |
+| 项                 | 值                                                                                                  |
+|--------------------|-----------------------------------------------------------------------------------------------------|
+| Stream key（单聊） | `offlinestream_<to_uid>`                                                                            |
+| Stream key（群聊） | `offlinestream_group_<to_uid>`（未启用）                                                            |
+| 消费组             | `userxgroup_<uid>`，登录时由 `RedisManager::registUser` 创建（`MKSTREAM`）                          |
+| 字段               | `from_uid`、`type`、`body`（均为字符串）                                                            |
+| 消息编号           | Redis Stream 生成的 `<毫秒>-<序号>`，通过 `1024` 返回给接收方                                       |
+| 保留策略           | `XADD ... MINID ~ <now - 7天>-0`，约 7 天                                                           |
+| 读取               | 先 `getMessageFromOffline(..., Pending)`（`XREADGROUP ... 0`），为空再 `New`（`>`），由 `1023` 调用 |
+| 确认               | `ackAndDelChatMessages` → `xAckDel`（`XACKDEL ... ACKED`），由 `1025` 调用                          |
 
 ## 5. 未实现（后续规划）
 
@@ -196,5 +197,6 @@ service ChatService
 - 未校验 `to_uid` 是否为好友。
 - Redis 写入失败只记日志，`1014` 仍返回 `0`。
 - `body` / `msg_id` / `ids[]` 未做类型校验；单帧上限 2048 字节。
-- 拉取使用 `XREADGROUP ... >`：已拉取未 ACK 的消息不会再次返回；ACK 即 `XDEL`，无历史记录。
+- 拉取为 **at-least-once**：未 ACK 的消息会被再次返回，客户端需按 `id` 去重；ACK（`XACKDEL`）后删除，无历史记录。
+- `XACKDEL` 需要 Redis 8.2+，低版本上 ACK 会失败、消息会一直重投。
 - 拉取 / 确认 **单次上限均为 10 条**（服务端硬编码），超过返回 `1020`。

@@ -249,108 +249,12 @@ void RedisManager::insertMessageToOffline(const chat_message::Message& message) 
 
 void RedisManager::ackAndDelChatMessages(const std::uint64_t to_uid, const std::vector<std::string>& message_ids) const
 {
-    if (message_ids.empty())
-    {
-        return;
-    }
-
-    auto* connect = m_connectPool->getConnection();
-    if (connect == nullptr)
-    {
-        return;
-    }
-
     const std::string stream_name = USER_OFFLINE_MESSAGE_STREAM + std::to_string(to_uid);
     const std::string group_name = USER_XGROUP_NAME + std::to_string(to_uid);
-
-    redisReply* reply = nullptr;
-
-    Defer defer([connect, &reply, this]() noexcept
-        {
-            if (reply)
-            {
-                freeReplyObject(reply);
-            }
-            if (connect == nullptr)
-            {
-                return;
-            }
-            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
-            if (reply == nullptr || connect->err != 0)
-            {
-                m_connectPool->recycleBadConnection(connect);
-            }
-            else
-            {
-                m_connectPool->returnConnection(connect);
-            }
-        });
-
-    static constexpr std::size_t kBatchSize = 512;
-
-    // 脚本参数: KEYS[1]=stream, ARGV[1]=group, ARGV[2..]=ids
-    // 返回 XDEL 实际删除的条数；n<=0 时直接返回 0
-    static constexpr char kScript[] =
-        "local n = #ARGV - 1\n"
-        "if n <= 0 then return 0 end\n"
-        "redis.call('XACK', KEYS[1], ARGV[1], unpack(ARGV, 2, #ARGV))\n"
-        "return redis.call('XDEL', KEYS[1], unpack(ARGV, 2, #ARGV))\n";
-
-    for (std::size_t offset = 0; offset < message_ids.size(); offset += kBatchSize)
-    {
-        const std::size_t end = std::min(offset + kBatchSize, message_ids.size());
-        const std::size_t count = end - offset;
-
-        detail::ArgvBuilder b;
-        b.reserve(5 + count);
-        b.pushLiteral("EVAL", 4);
-        b.pushLiteral(kScript, sizeof(kScript) - 1);
-        b.pushLiteral("1", 1); // numkeys = 1
-        b.push(stream_name);   // KEYS[1]
-        b.push(group_name);    // ARGV[1]
-        for (std::size_t i = offset; i < end; ++i)
-        {
-            b.push(message_ids[i]); // ARGV[2..]
-        }
-
-        // 注意：这里每次循环都复用局部 reply，但要先释放上一轮的
-        if (reply)
-        {
-            freeReplyObject(reply);
-            reply = nullptr;
-        }
-
-        reply = static_cast<redisReply*>(
-            redisCommandArgv(connect,
-                             static_cast<int>(b.argv.size()),
-                             b.argv.data(),
-                             b.argvlen.data()));
-
-        if (reply == nullptr)
-        {
-            spdlog::warn("[redis] ackDel chat (EVAL) null reply, uid={}, offset={}",
-                         to_uid, offset);
-            return;
-        }
-        if (reply->type == REDIS_REPLY_ERROR)
-        {
-            spdlog::warn("[redis] ackDel chat (EVAL) error: {}, uid={}",
-                         reply->str ? reply->str : "(no detail)", to_uid);
-            return;
-        }
-        if (reply->type == REDIS_REPLY_INTEGER)
-        {
-            if (reply->integer < static_cast<long long>(count))
-            {
-                // 不是失败：可能部分 ID 早已被删除，XDEL 返回的是实际删除数
-                spdlog::debug("[redis] ackDel chat uid={}, requested={}, deleted={}",
-                              to_uid, count, reply->integer);
-            }
-        }
-    }
+    (void) xAckDel(stream_name, group_name, message_ids);
 }
 
-std::vector<chat_message::Message> RedisManager::getMessageFromOffline(const std::uint64_t to_uid, std::uint64_t count) const
+std::vector<chat_message::Message> RedisManager::getMessageFromOffline(const std::uint64_t to_uid, const std::uint64_t count, const MessageReadMode mode) const
 {
     auto* connect = m_connectPool->getConnection();
     if (connect == nullptr)
@@ -380,7 +284,8 @@ std::vector<chat_message::Message> RedisManager::getMessageFromOffline(const std
     push(count_str.data(), count_str.size());
     push("STREAMS", 7);
     push(stream_name.data(), stream_name.size());
-    push(">", 1);
+    // ">" 取新消息；"0" 读取当前 consumer 的 PEL（已投递未 ACK）
+    push(mode == MessageReadMode::Pending ? "0" : ">", 1);
 
     auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(argv.size()), argv.data(), argvlen.data()));
 
@@ -467,6 +372,64 @@ std::vector<chat_message::Message> RedisManager::getMessageFromOffline(const std
     }
 
     return messages;
+}
+
+std::uint64_t RedisManager::getPendingMessageCount(const std::uint64_t uid) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return 0;
+    }
+
+    const std::string stream_name = USER_OFFLINE_MESSAGE_STREAM + std::to_string(uid);
+    const std::string group_name = USER_XGROUP_NAME + std::to_string(uid);
+
+    std::vector<const char*> argv;
+    std::vector<std::size_t> argvlen;
+    auto push = [&](const char* s, const std::size_t n)
+        {
+            argv.push_back(s);
+            argvlen.push_back(n);
+        };
+
+    push("XPENDING", 9);
+    push(stream_name.data(), stream_name.size());
+    push(group_name.data(), group_name.size());
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(argv.size()), argv.data(), argvlen.data()));
+
+    Defer defer([connect, reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            if (connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    // XPENDING <stream> <group> 返回 [count, min-id, max-id, consumers]
+    if (reply == nullptr || reply->type != REDIS_REPLY_ARRAY || reply->elements == 0)
+    {
+        return 0;
+    }
+    const redisReply* count_item = reply->element[0];
+    if (count_item == nullptr || count_item->type != REDIS_REPLY_INTEGER || count_item->integer < 0)
+    {
+        return 0;
+    }
+    return static_cast<std::uint64_t>(count_item->integer);
 }
 
 std::string RedisManager::isUserOnLine(const std::uint64_t uid) const
@@ -637,6 +600,75 @@ bool RedisManager::xGroup(const std::string& stream_name, const std::string& gro
     }
 
     return success;
+}
+
+std::vector<int> RedisManager::xAckDel(const std::string& stream_name, const std::string& group_name, const std::vector<std::string>& ids, const std::string& type) const
+{
+    if (ids.empty())
+    {
+        return {};
+    }
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return {};
+    }
+
+    const std::string size = std::to_string(ids.size());
+
+    detail::ArgvBuilder builder;
+    builder.pushLiteral("XACKDEL", 7);
+    builder.push(stream_name);
+    builder.push(group_name);
+    builder.push(type);
+    builder.pushLiteral("IDS", 3);
+    builder.push(size);
+
+    for (const auto& id: ids)
+    {
+        builder.push(id);
+    }
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(builder.argv.size()), builder.argv.data(), builder.argvlen.data()));
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    std::vector<int> values{};
+    if (reply == nullptr || reply->type == REDIS_REPLY_ERROR)
+    {
+        return {};
+    }
+    if (reply->type == REDIS_REPLY_ARRAY)
+    {
+        for (std::size_t i = 0; i < reply->elements; i++)
+        {
+            const redisReply* item = reply->element[i];
+            if (item->type == REDIS_REPLY_INTEGER)
+            {
+                values.push_back(static_cast<int>(item->integer));
+            }
+        }
+    }
+    return values;
 }
 
 bool RedisManager::get(const std::string& key, std::string& value) const

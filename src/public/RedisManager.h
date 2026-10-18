@@ -45,6 +45,13 @@ private:
 };
 }
 
+/// XREADGROUP 的读取位置
+enum class MessageReadMode
+{
+    New,    // ">": 只取从未投递的新消息
+    Pending // "0": 读取当前 consumer（uid）的 PEL，即已投递但未 ACK 的消息
+};
+
 class RedisManager : public TSingLeton<RedisManager>
 {
     friend class TSingLeton;
@@ -59,13 +66,26 @@ public:
     void insert(const std::vector<std::shared_ptr<UserInfo> >& user_infos, long ex = 500) const;
     void insertMessageToOffline(const chat_message::Message& message) const;
     void ackAndDelChatMessages(std::uint64_t to_uid, const std::vector<std::string>& message_ids) const;
-    [[nodiscard]] std::vector<chat_message::Message> getMessageFromOffline(std::uint64_t to_uid, std::uint64_t count = 1) const;
+    [[nodiscard]] std::vector<chat_message::Message> getMessageFromOffline(std::uint64_t to_uid, std::uint64_t count = 1, MessageReadMode mode = MessageReadMode::New) const;
+    /// 当前用户 PEL 中的待确认消息数（XPENDING 汇总计数）；组不存在 / Redis 异常返回 0
+    [[nodiscard]] std::uint64_t getPendingMessageCount(std::uint64_t uid) const;
     /// 获取用户ip，用户不在线返回空字符串
     [[nodiscard]] std::string isUserOnLine(std::uint64_t uid) const;
 
     [[nodiscard]] bool xAdd(const std::string& stream_name, const std::vector<std::pair<std::string, std::string> >& field_values, std::int64_t cut_time = 7 * 24 * 3600 * 1000) const;
     // start_id "0"从头 或 "$"最新 或具体 ID
     [[nodiscard]] bool xGroup(const std::string& stream_name, const std::string& group_name, const std::string& start_id = "0", bool shoold_make_stream = true) const;
+    /**
+     * XACKDEL 确认后删除
+     * @param stream_name 流名称
+     * @param group_name 组名称
+     * @param ids id
+     * @param type  ACKED（默认）：仅确认消息，不执行删除操作，仅当一条消息已经被“所有”消费组都读取并确认（ACK）之后，才会从 Stream 中将它物理删除。
+     *            <br>  DELREF：确认并删除消息，同时清除相关消费组 PEL 中的引用，从 Stream 中将它物理删除。
+     *            <br>  KEEPREF：确认消息并从 Stream 中删除，但保留所有消费组 PEL（待处理条目列表）中对这些消息的引用。
+     * @return 1 表示成功删除，-1 表示消息不存在，2 表示因 ACKED 策略而跳过了删除（因为有组未确认）。
+     */
+    [[nodiscard]] std::vector<int> xAckDel(const std::string& stream_name, const std::string& group_name, const std::vector<std::string>& ids, const std::string& type = "ACKED") const;
 
     [[nodiscard]] bool get(const std::string& key, std::string& value) const;
     [[nodiscard]] bool set(const std::string& key, const std::string& value, long ex = 30) const;

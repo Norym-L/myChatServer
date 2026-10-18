@@ -295,6 +295,9 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
 
     // 绑定uid和session，实现踢人操作
     UserManager::GetInstance().setUserSession(uid, session);
+
+    // PEL 中是否有"已投递未 ACK"的消息；提示客户端登录后立即拉取
+    return_value["has_pending"] = RedisManager::GetInstance().getPendingMessageCount(uid) > 0 ? "1" : "0";
 }
 
 void LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& /*message_data*/) const
@@ -666,9 +669,16 @@ void LogicSystem::syncChatMessageHandler(const std::shared_ptr<CSession>& sessio
         return;
     }
 
-    const auto messages = RedisManager::GetInstance().getMessageFromOffline(session->getUserId(), count); // 拉取 count 条
+    // PEL 优先：先重投"已投递未 ACK"的消息；PEL 为空时才拉取新消息。
+    // 同一批 PEL 会被反复返回，客户端必须 ACK 后再拉下一批。
+    auto messages = RedisManager::GetInstance().getMessageFromOffline(session->getUserId(), count, MessageReadMode::Pending);
+    if (messages.empty())
+    {
+        messages = RedisManager::GetInstance().getMessageFromOffline(
+            session->getUserId(), count, MessageReadMode::New);
+    }
     return_value["error"] = ErrorCode::SUCCESS;
-    return_value["count"] = messages.size();
+    return_value["count"] = std::to_string(messages.size());
     for (const auto& message: messages)
     {
         if (!message.is_to_group)
