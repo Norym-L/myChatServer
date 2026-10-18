@@ -198,6 +198,13 @@ void LogicSystem::registerCallBacks()
             {
                 syncUserFriendList(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_TEXT_CHAT_MSG_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                sendTextMessageHandler(session, message_data);
+            };
 }
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -218,13 +225,6 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
 
     spdlog::debug("[logic system] user login, id: {}, token: {}", uid, token);
 
-    // auto rsp = StatusGrpcClient::GetInstance().login(uid, token);
-    // return_value["error"] = rsp.error();
-    // if (rsp.error() != static_cast<uint16_t>(ErrorCode::SUCCESS))
-    // {
-    //     return;
-    // }
-
     const std::string uid_str = std::to_string(uid);
     // 从 redis 中获取用户token
     std::string token_value{};
@@ -239,6 +239,11 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     else if (token_value != token)
     {
         return_value["error"] = ErrorCode::USER_TOKEN_INVALID;
+        return;
+    }
+    else if (!RedisManager::GetInstance().registUser(uid, m_selfServerName)) // redis注册失败
+    {
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         return;
     }
     else
@@ -264,9 +269,6 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     return_value["sex"] = user_info->sex;
     return_value["icon"] = user_info->icon;
 
-    // 从数据库获取好友列表和好友申请列表
-    // TODO
-
     // 本实例连接数 +1：由 ServerRegistry 统一维护并写入 Redis（logincount_<name>，随心跳续期）。
     // 同一 session 重复登录不重复计数，避免断开时只减一次导致计数只增不减
     if (session->getUserId() == 0)
@@ -276,13 +278,6 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
 
     // 绑定用户session
     session->setUserId(uid);
-
-    // 设置用户登录的服务器
-    const auto ip_key = USER_IP_PERFIX + uid_str;
-    if (!RedisManager::GetInstance().set(ip_key, m_selfServerName))
-    {
-        spdlog::warn("[logic][LogicSystem::loginHandler] Redis insert error!");
-    }
 
     // 绑定uid和session，实现踢人操作
     UserManager::GetInstance().setUserSession(uid, session);
@@ -566,6 +561,55 @@ void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& sess
     (void) GrpcAuthFriendRequestAndNotifyToOther(sender_uid, add_friend_request_id, state, user_ip);
 }
 
+void LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    //  -> redis的离线序列 -> 查询是否在线 -> 发送到指定用户 -> 接收用户回包显示接收到 -> 删除redis等待序列数据
+    HANDLER_PREFIX(MESSAGE_TEXT_CHAT_MSG_RSP)
+
+    std::uint64_t to_uid{};
+    int message_type{};
+    if (!uid_codec::ParseUid(root["to_uid"].asString(), to_uid) ||
+        !uid_codec::ParseNumber(root["type"].asString(), message_type) ||
+        message_type > 4 || message_type < 1)
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        return;
+    }
+
+    bool is_group = false; //TODO 判断是否为群聊
+
+    RedisManager::GetInstance().insertMessageToOffline({
+        .type        = static_cast<chat_message::Type>(message_type),
+        .from_uid    = session->getUserId(),
+        .to_uid      = to_uid,
+        .is_to_group = is_group,
+        .body        = root["body"].asString(),
+        .message_id  = {} // 由 redis 生成
+    });
+
+    return_value["error"] = ErrorCode::SUCCESS;
+
+    // 通知对方有消息
+    const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
+    if (user_ip.empty())
+    {
+        return; // 对方不在线
+    }
+    if (user_ip == m_selfServerName)
+    {
+        // 在当前服务器
+        const auto session_other = UserManager::GetInstance().getSession(to_uid);
+        if (!session_other)
+        {
+            return;
+        }
+        session_other->notifyReceiveMessage();
+        return;
+    }
+
+    (void) GrpcNotifyReceiveMessageToOther(to_uid, user_ip);
+}
+
 void LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_SYNC_FRIEND_LIST_RSP)
@@ -619,6 +663,19 @@ bool LogicSystem::GrpcAuthFriendRequestAndNotifyToOther(const std::uint64_t send
     if (rsp.error() != 0)
     {
         spdlog::warn("LogicSystem::GrpcAuthFriendRequestAndNotifyToOther send grpc error, error: {}", rsp.error());
+        return false;
+    }
+    return true;
+}
+
+bool LogicSystem::GrpcNotifyReceiveMessageToOther(const std::uint64_t to_uid, const std::string& user_ip)
+{
+    NotifyChatMessageReq req;
+    req.set_touid(to_uid);
+    const auto rsp = ChatGrpcClient::GetInstance().notifyChatMessage(user_ip, req);
+    if (rsp.error() != 0)
+    {
+        spdlog::warn("LogicSystem::GrpcNotifyReceiveMessageToOther send grpc error, error: {}", rsp.error());
         return false;
     }
     return true;

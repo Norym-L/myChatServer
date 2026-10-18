@@ -51,6 +51,8 @@ public:
      */
     void sendFriendRequestResult(std::uint64_t add_friend_request_id, int state);
 
+    void notifyReceiveMessage();
+
     void close();
 
 private:

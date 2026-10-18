@@ -265,6 +265,14 @@ void CSession::sendFriendRequestResult(const std::uint64_t add_friend_request_id
     send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_NOTIFY_AUTH_FRIEND_REQ);
 }
 
+void CSession::notifyReceiveMessage()
+{
+    Json::Value return_value;
+    return_value["error"] = ErrorCode::SUCCESS;
+    const std::string return_str = return_value.toStyledString();
+    send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_NOTIFY_RECEIVE_MESSAGE);
+}
+
 void CSession::close()
 {
     (void) RedisManager::GetInstance().del(USER_IP_PERFIX + std::to_string(m_userId));

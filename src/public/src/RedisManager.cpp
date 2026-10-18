@@ -10,8 +10,10 @@
 
 #include "Defer.h"
 
-RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, const int port, const std::string& password)
-    : m_poolSize(pool_size), m_host(std::move(host)), m_port(port), m_password(password), m_beStop(false)
+namespace detail
+{
+RedisConnectPool::RedisConnectPool(const size_t pool_size, std::string host, const int port, std::string password)
+    : m_poolSize(pool_size), m_host(std::move(host)), m_port(port), m_password(std::move(password)), m_beStop(false)
 {
     for (size_t i = 0; i < m_poolSize; ++i)
     {
@@ -113,8 +115,7 @@ void RedisConnectPool::close()
     m_beStop = true;
     m_condition.notify_all();
 }
-
-//-----------------------------------------------------分界线-------------------------------------------
+}
 
 RedisManager::RedisManager()
 {
@@ -133,17 +134,28 @@ RedisManager::RedisManager()
                                  "host/port/passwd are required in " + ConfigManager::configPath());
     }
 
-    m_connectPool = std::make_unique < RedisConnectPool > (
-                        5,
-                        host,
-                        std::stoi(port_str),
-                        passwd
-                    );
+    m_connectPool = std::make_unique<detail::RedisConnectPool>(
+        5,
+        host,
+        std::stoi(port_str),
+        passwd
+        );
 }
 
 RedisManager::~RedisManager()
 {
     close();
+}
+
+bool RedisManager::registUser(std::uint64_t uid, const std::string& server_name) const
+{
+    if (!set(USER_IP_PERFIX + std::to_string(uid), server_name) ||
+        !xGroup(USER_OFFLINE_MESSAGE_STREAM + std::to_string(uid), USER_XGROUP_NAME + std::to_string(uid)))
+    {
+        spdlog::warn("[redis] user: {} regisert failed", uid);
+        return false;
+    }
+    return true;
 }
 
 void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info, const long ex) const
@@ -167,7 +179,7 @@ void RedisManager::insert(const std::shared_ptr<UserInfo>& user_info, const long
     }
 }
 
-void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_infos, const long ex) const
+void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo> >& user_infos, const long ex) const
 {
     // 按用户名查不到用户时调用方会传入空列表：此时不应写缓存，
     // 更不能对空列表取 front()（Debug 构建下直接断言崩溃，Release 下是未定义行为）
@@ -177,7 +189,7 @@ void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_inf
     }
 
     Json::Value redis_root;
-    for (const auto& user_info : user_infos)
+    for (const auto& user_info: user_infos)
     {
         if (!user_info)
         {
@@ -191,11 +203,296 @@ void RedisManager::insert(const std::vector<std::shared_ptr<UserInfo>>& user_inf
     }
 }
 
+void RedisManager::insertMessageToOffline(const chat_message::Message& message) const
+{
+    if (!xAdd((message.is_to_group ? GROUP_OFFLINE_MESSAGE_STREAM : USER_OFFLINE_MESSAGE_STREAM) + std::to_string(message.to_uid),
+              {
+                  {"from_uid", std::to_string(message.from_uid)},
+                  {"type", std::to_string(message.type)},
+                  {"body", message.body}
+              }))
+    {
+        spdlog::warn("[redis] redis insert text_message failed!");
+    }
+}
+
+std::vector<chat_message::Message> RedisManager::getMessageFromOffline(const std::uint64_t to_uid, std::uint64_t count) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return {};
+    }
+
+    const std::string consumer = std::to_string(to_uid);
+    const std::string group_name = USER_XGROUP_NAME + consumer;
+    const std::string stream_name = USER_OFFLINE_MESSAGE_STREAM + consumer;
+    const std::string count_str = std::to_string(count);
+
+    std::vector<const char*> argv;
+    std::vector<std::size_t> argvlen;
+
+    auto push = [&](const char* s, const std::size_t n)
+        {
+            argv.push_back(s);
+            argvlen.push_back(n);
+        };
+
+    push("XREADGROUP", 10);
+    push("GROUP", 5);
+    push(group_name.data(), group_name.size());
+    push(consumer.data(), consumer.size());
+    push("COUNT", 5);
+    push(count_str.data(), count_str.size());
+    push("STREAMS", 7);
+    push(stream_name.data(), stream_name.size());
+    push(">", 1);
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(argv.size()), argv.data(), argvlen.data()));
+
+    Defer defer([connect, reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 连接已损坏（网络错误、超时、协议错）则销毁，不污染连接池
+            if (connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+    if (reply == nullptr)
+    {
+        // 命令本身失败（通常 connect->err 也被设置），defer 会销毁连接
+        return {};
+    }
+    if (reply->type == REDIS_REPLY_ERROR)
+    {
+        return {};
+    }
+
+    if (reply->type == REDIS_REPLY_ARRAY)
+    {
+        std::vector<chat_message::Message> messages;
+        const auto* message = reply->element[1];
+        for (std::size_t i = 0; i < message->elements; ++i)
+        {
+            chat_message::Message msg;
+            const auto* message_info = message->element[i];
+            // message_info->element[0] 是消息 ID (REDIS_REPLY_STRING)
+            msg.message_id = std::string(message_info->element[0]->str, message_info->element[0]->len);
+            // message_info->element[1] 是字段值对列表 (REDIS_REPLY_ARRAY)
+            const auto* key_values = message_info->element[1];
+            for (size_t j = 0; j < key_values->elements; j += 2)
+            {
+                const redisReply* field_name = key_values->element[j];
+                const redisReply* field_value = key_values->element[j + 1];
+                // 处理 field_name 和 field_value
+                if (field_name->type != REDIS_REPLY_STRING || field_value->type != REDIS_REPLY_STRING)
+                {
+                    continue; // 理论上不会发生，防御性处理
+                }
+
+                std::string key(field_name->str, field_name->len);
+                std::string value(field_value->str, field_value->len);
+                if (key == "from_uid")
+                {
+                    msg.from_uid = std::stoull(value);
+                }
+                else if (key == "type")
+                {
+                    msg.type = static_cast<chat_message::Type>(std::stoi(value));
+                }
+                else if (key == "body")
+                {
+                    msg.body = value;
+                }
+            }
+            messages.push_back(msg);
+        }
+        return messages;
+    }
+
+    return {};
+}
+
 std::string RedisManager::isUserOnLine(const std::uint64_t uid) const
 {
     std::string ip{};
-    (void)get(USER_IP_PERFIX + std::to_string(uid), ip);
+    (void) get(USER_IP_PERFIX + std::to_string(uid), ip);
     return ip;
+}
+
+bool RedisManager::xAdd(const std::string& stream_name, const std::vector<std::pair<std::string, std::string> >& field_values, const std::int64_t cut_time) const
+{
+    if (field_values.empty())
+    {
+        return false;
+    }
+    if (stream_name.empty())
+    {
+        return false;
+    }
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    std::string min_id_str;
+    const bool use_minid = (cut_time > 0);
+
+    if (use_minid)
+    {
+        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        std::int64_t threshold = now_ms - cut_time;
+
+        if (threshold < 0)
+        {
+            threshold = 0;
+        }
+        min_id_str = std::to_string(threshold) + "-0";
+    }
+    std::vector<const char*> argv;
+    std::vector<std::size_t> argvlen;
+    argv.reserve(6 + 2 * field_values.size());
+    argvlen.reserve(6 + 2 * field_values.size());
+
+    auto push = [&](const char* s, std::size_t n)
+        {
+            argv.push_back(s);
+            argvlen.push_back(n);
+        };
+
+    push("XADD", 4);
+    push(stream_name.data(), stream_name.size());
+
+    if (use_minid)
+    {
+        push("MINID", 5);
+        push("~", 1); // 近似修剪
+        push(min_id_str.data(), min_id_str.size());
+    }
+
+    push("*", 1); // 自动生成 ID
+
+    for (const auto& [field, value]: field_values)
+    {
+        push(field.data(), field.size());
+        push(value.data(), value.size());
+    }
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect,
+                                                            static_cast<int>(argv.size()),
+                                                            argv.data(),
+                                                            argvlen.data()));
+
+    Defer defer([connect, reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 连接已损坏（网络错误、超时、协议错）则销毁，不污染连接池
+            if (connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    if (reply == nullptr)
+    {
+        // 命令本身失败（通常 connect->err 也被设置），defer 会销毁连接
+        return false;
+    }
+
+    if (reply->type == REDIS_REPLY_ERROR)
+    {
+        return false;
+    }
+
+    return reply->type == REDIS_REPLY_STRING;
+}
+
+bool RedisManager::xGroup(const std::string& stream_name, const std::string& group_name, const std::string& start_id, const bool shoold_make_stream) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    std::vector<const char*> argv;
+    std::vector<size_t> lens;
+
+    auto push = [&](const std::string& s)
+        {
+            argv.push_back(s.data());
+            lens.push_back(s.size());
+        };
+
+    push("XGROUP");
+    push("CREATE");
+    push(stream_name);
+    push(group_name);
+    push(start_id);
+    if (shoold_make_stream)
+    {
+        push("MKSTREAM"); // 流不存在时自动创建
+    }
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(argv.size()), argv.data(), lens.data()));
+
+    Defer defer([connect, reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 连接已损坏（网络错误、超时、协议错）则销毁，不污染连接池
+            if (connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+    if (!reply) return false;
+    bool success = (reply->type == REDIS_REPLY_STATUS && std::string(reply->str) == "OK");
+
+    // BUSYGROUP 表示组已存在，若业务是幂等初始化，可视为成功
+    if (!success && reply->type == REDIS_REPLY_ERROR)
+    {
+        if (std::string(reply->str).rfind("BUSYGROUP", 0) == 0)
+        {
+            success = true;
+        }
+    }
+
+    return success;
 }
 
 bool RedisManager::get(const std::string& key, std::string& value) const
@@ -206,7 +503,7 @@ bool RedisManager::get(const std::string& key, std::string& value) const
         return false;
     }
 
-    const auto reply = static_cast<redisReply *>(redisCommand(connect, "GET %s", key.c_str()));
+    const auto reply = static_cast<redisReply*>(redisCommand(connect, "GET %s", key.c_str()));
     if (reply == nullptr || reply->type != REDIS_REPLY_STRING)
     {
         spdlog::debug("[RedisManager] redis [GET {} ] failed", key);

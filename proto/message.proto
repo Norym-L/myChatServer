@@ -55,8 +55,7 @@ service ChatService
 {
   rpc NotifyAddFriend(AddFriendReq) returns (AddFriendRsp) {}
   rpc ReplyAddFriend(ReplyFriendReq) returns (ReplyFriendRsp) {}
-  rpc SendChatMessage(SendChatMessageReq) returns (SendChatMessageRsp) {}
-  rpc NotifyTextChatMessage(TextChatMessageReq) returns (TextChatMessageRsp) {}
+  rpc NotifyChatMessage(NotifyChatMessageReq) returns (NotifyChatMessageRsp) {}
 }
 
 // 添加好友
@@ -84,37 +83,12 @@ message ReplyFriendRsp
 }
 
 // 聊天信息
-message SendChatMessageReq
+message NotifyChatMessageReq
 {
-  uint64 fromUid = 1;
   uint64 toUid = 2;
-  string message = 3;
 }
 
-message SendChatMessageRsp
+message NotifyChatMessageRsp
 {
   int32 error = 1;
-  uint64 fromUid = 2;
-  uint64 toUid = 3;
-}
-
-message TextChatData
-{
-  string messageId = 1;
-  string messageContent = 2;
-}
-
-message TextChatMessageReq
-{
-  uint64 fromUid = 1;
-  uint64 toUid = 2;
-  repeated TextChatData textMessage = 3;
-}
-
-message TextChatMessageRsp
-{
-  int32 error = 1;
-  uint64 fromUid = 2;
-  uint64 toUid = 3;
-  repeated TextChatData textMessage = 4;
 }

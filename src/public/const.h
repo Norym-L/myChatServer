@@ -62,6 +62,7 @@ enum MessageType : std::uint16_t
     MESSAGE_CHECK_IS_USER_ONLINE_RSP, //查询用户是否在线请求回包
     MESSAGE_SYNC_FRIEND_LIST_REQ,     //获取好友列表
     MESSAGE_SYNC_FRIEND_LIST_RSP,     //获取好友列表回包
+    MESSAGE_NOTIFY_RECEIVE_MESSAGE,   // 通知客户端有新的消息
 };
 
 #include <fmt/format.h>
@@ -76,19 +77,5 @@ struct fmt::formatter<grpc::StatusCode> : fmt::formatter<int>
         return fmt::formatter<int>::format(static_cast<int>(s), ctx);
     }
 };
-
-#define CODE_PREFIX "code_"
-#define USER_IP_PERFIX "uip_"
-#define USER_TOKEN_PERFIX "utoken_"
-#define IP_COUNT_PERFIX "ipcount_"
-#define USER_BASE_INFO "ubaseinfo_"
-#define USER_BASE_INFO_BY_NAME "ubaseinfo_name_" // 需要处理多个值，连接用户uid数组
-#define LOGIN_COUNT_PREFIX "logincount_" // 每实例连接数 key 前缀：logincount_<name>，EX 30s，随实例心跳续期
-
-#define HEART_BEAT_EXPIRE_SECONDS 30 // 心跳续期时长（秒）：超过该时长未收到心跳，在线 key 过期，用户判定为离线
-
-#define SERVER_LIST "serverlist"                    // hash：服务名 -> 对外地址(host:port)，服务发现用
-#define SERVER_HEARTBEAT_PREFIX "serverheartbeat_"  // 存活 key 前缀：serverheartbeat_<name>，EX 30s 表示实例存活
-#define SERVER_HEARTBEAT_RENEW_SECONDS 10           // 存活 key 的续期间隔（秒），必须显著小于 TTL，留出容错
 
 #endif //GATESERVER_CONST_H

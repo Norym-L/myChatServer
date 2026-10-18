@@ -2,17 +2,22 @@
 
 IDL 定义：`proto/message.proto`（package `message`）。
 
-本次变更**未修改 proto**，字段编号与线格式均保持向后兼容；变更集中在调用方的超时策略与错误处理。
+字段与 RPC 的变更历史见 [`api-changes.md`](api-changes.md)；本文件描述当前实现。
 
 ## 1. 服务一览
 
-| 服务 | 方法 | 调用方 → 服务方 | 用途 |
-|------|------|----------------|------|
-| `VerifyService` | `GetVerifyCode` | GateServer → VerifyServer | 请求下发邮箱验证码 |
-| `StatusService` | `GetChatServer` | GateServer → StatusServer | 分配 ChatServer 并签发 token |
-| `StatusService` | `Login` | ChatServer → StatusServer | 校验客户端提交的 token |
+| 服务            | 方法                | 调用方 → 服务方           | 用途                         |
+|-----------------|---------------------|---------------------------|------------------------------|
+| `VerifyService` | `GetVerifyCode`     | GateServer → VerifyServer | 请求下发邮箱验证码           |
+| `StatusService` | `GetChatServer`     | GateServer → StatusServer | 分配 ChatServer 并签发 token |
+| `StatusService` | `Login`             | ChatServer → StatusServer | 校验客户端提交的 token       |
+| `ChatService`   | `NotifyAddFriend`   | ChatServer → ChatServer   | 转发"收到好友申请"通知       |
+| `ChatService`   | `ReplyAddFriend`    | ChatServer → ChatServer   | 转发好友申请处理结果         |
+| `ChatService`   | `NotifyChatMessage` | ChatServer → ChatServer   | 转发"有新消息"通知           |
 
 > `VerifyService` 的服务端实现不在本仓库内。
+> `ChatService` 用于 ChatServer 之间的推送转发，字段与行为详见 [`api-friend.md`](api-friend.md) 与 [
+`api-chat.md`](api-chat.md)。
 
 ## 2. VerifyService.GetVerifyCode
 

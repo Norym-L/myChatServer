@@ -40,11 +40,13 @@ private:
     void syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void checkIsUserOnlineHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     void authFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    void sendTextMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 获取好友列表
     void syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
 
     [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);
     [[nodiscard]] static bool GrpcAuthFriendRequestAndNotifyToOther(std::uint64_t sender_uid, std::uint64_t add_friend_request_id, int state, const std::string& user_ip); // FriendApplyStatus
+    [[nodiscard]] static bool GrpcNotifyReceiveMessageToOther(std::uint64_t to_uid, const std::string& user_ip);
     [[nodiscard]] static std::shared_ptr<UserInfo> SearchUserByUid(uint64_t uid);
     [[nodiscard]] static std::vector<std::shared_ptr<UserInfo> > SearchUserByName(const std::string& name);
 

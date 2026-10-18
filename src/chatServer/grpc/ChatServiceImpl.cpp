@@ -33,8 +33,17 @@ Status ChatServiceImpl::ReplyAddFriend(ServerContext* context, const message::Re
     return Status::OK;
 }
 
-Status ChatServiceImpl::NotifyTextChatMessage(ServerContext* context, const TextChatMessageReq* request, TextChatMessageRsp* response)
+Status ChatServiceImpl::NotifyChatMessage(ServerContext* context, const NotifyChatMessageReq* request, NotifyChatMessageRsp* response)
 {
+    const auto session = UserManager::GetInstance().getSession(request->touid());
+    if (!session)
+    {
+        response->set_error(ErrorCode::USER_OUTLINE);
+        return Status::OK;
+    }
+    session->notifyReceiveMessage();
+    response->set_error(ErrorCode::SUCCESS);
+    spdlog::debug("ChatServiceImpl::ReplyAddFriend send friend request reply to: {}", request->touid());
     return Status::OK;
 }
 

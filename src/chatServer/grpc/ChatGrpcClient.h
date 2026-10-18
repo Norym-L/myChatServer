@@ -24,9 +24,8 @@ using message::LoginReq;
 using message::LoginRsp;
 using message::ChatService;
 
-using message::TextChatData;
-using message::TextChatMessageReq;
-using message::TextChatMessageRsp;
+using message::NotifyChatMessageRsp;
+using message::NotifyChatMessageReq;
 
 class ChatGrpcClient final : public TSingLeton<ChatGrpcClient>
 {
@@ -35,7 +34,7 @@ class ChatGrpcClient final : public TSingLeton<ChatGrpcClient>
 public:
     [[nodiscard]] AddFriendRsp addFriend(const std::string& server_ip, const AddFriendReq& req);
     [[nodiscard]] ReplyFriendRsp replyFriend(const std::string& server_ip, const ReplyFriendReq& req);
-    [[nodiscard]] TextChatMessageRsp sendTextChatMessage(const std::string& server_ip, const TextChatMessageReq& req, const Json::Value& return_value);
+    [[nodiscard]] NotifyChatMessageRsp notifyChatMessage(const std::string& server_ip, const NotifyChatMessageReq& req);
     [[nodiscard]] std::shared_ptr<UserInfo> getBaseInfo(const std::string& base_key, std::uint64_t uid);
 
 private:

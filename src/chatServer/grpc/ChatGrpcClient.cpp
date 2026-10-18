@@ -61,9 +61,32 @@ ReplyFriendRsp ChatGrpcClient::replyFriend(const std::string& server_ip, const R
     }
 }
 
-TextChatMessageRsp ChatGrpcClient::sendTextChatMessage(const std::string& server_ip, const TextChatMessageReq& req, const Json::Value& return_value)
+NotifyChatMessageRsp ChatGrpcClient::notifyChatMessage(const std::string& server_ip, const NotifyChatMessageReq& req)
 {
-    return TextChatMessageRsp{};
+    ClientContext context;
+    // 必须设置超时：对端假死（连接建立但不响应）时，同步 RPC 会永久阻塞调用线程
+    context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(3));
+    NotifyChatMessageRsp reply;
+
+    auto stub = m_pool[server_ip]->getConnection();
+    // 池关闭时会返回空连接，必须判空后再调用 stub
+    if (stub == nullptr)
+    {
+        reply.set_error(ErrorCode::RPC_FAILED);
+        return reply;
+    }
+    const Status status = stub->NotifyChatMessage(&context, req, &reply);
+    if (status.ok())
+    {
+        m_pool[server_ip]->returnConnection(std::move(stub));
+        return reply;
+    }
+    else
+    {
+        m_pool[server_ip]->returnConnection(std::move(stub));
+        reply.set_error(ErrorCode::RPC_FAILED);
+        return reply;
+    }
 }
 
 std::shared_ptr<UserInfo> ChatGrpcClient::getBaseInfo(const std::string& base_key, std::uint64_t uid)
