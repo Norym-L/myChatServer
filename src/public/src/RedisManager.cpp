@@ -439,6 +439,69 @@ std::string RedisManager::isUserOnLine(const std::uint64_t uid) const
     return ip;
 }
 
+bool RedisManager::isFriend(const std::uint64_t online_uid, const std::uint64_t other_uid) const
+{
+    static constexpr long live_sencond = 7 * 24 * 60 * 60;
+    const auto set_name = USER_FRIEND_SET + std::to_string(online_uid);
+    const auto uidB_str = std::to_string(other_uid);
+    return sIsMember(set_name, uidB_str) &&
+           expire(set_name, live_sencond);
+}
+
+bool RedisManager::addFriend(const std::uint64_t online_uid, const std::uint64_t other_uid) const
+{
+    static constexpr long live_sencond = 7 * 24 * 60 * 60;
+    const auto uidA_str = std::to_string(online_uid);
+    const auto set_name_A = USER_FRIEND_SET + uidA_str;
+    const auto uidB_str = std::to_string(other_uid);
+    const auto set_name_B = USER_FRIEND_SET + uidB_str;
+    if (existsKey(set_name_B))
+    {
+        return sAdd(set_name_A, uidB_str) &&
+               sAdd(set_name_B, uidA_str);
+    }
+    return sAdd(set_name_A, uidB_str);
+}
+
+bool RedisManager::delFriend(const std::uint64_t online_uid, const std::uint64_t other_uid) const
+{
+    static constexpr long live_sencond = 7 * 24 * 60 * 60;
+    const auto uidA_str = std::to_string(online_uid);
+    const auto set_name_A = USER_FRIEND_SET + uidA_str;
+    const auto uidB_str = std::to_string(other_uid);
+    const auto set_name_B = USER_FRIEND_SET + uidB_str;
+    if (existsKey(set_name_B))
+    {
+        return sRem(set_name_A, uidB_str) &&
+               sRem(set_name_B, uidA_str);
+    }
+    return sRem(set_name_A, uidB_str);
+}
+
+std::vector<std::string> RedisManager::getFriendList(const std::uint64_t uid) const
+{
+    const std::string set_name = USER_FRIEND_SET + std::to_string(uid);
+    return sMembers(set_name);
+}
+
+bool RedisManager::loadFriends(const std::uint64_t online_uid, const std::vector<std::uint64_t>& other_uids) const
+{
+    if (other_uids.empty())
+    {
+        return true;
+    }
+    static constexpr long live_sencond = 7 * 24 * 60 * 60;
+    const auto set_name = USER_FRIEND_SET + std::to_string(online_uid);
+    std::vector<std::string> loaded_uids;
+    loaded_uids.reserve(other_uids.size());
+    for (const auto& uid: other_uids)
+    {
+        loaded_uids.push_back(std::to_string(uid));
+    }
+    return sAdd(set_name, loaded_uids) &&
+           expire(set_name, live_sencond);
+}
+
 bool RedisManager::xAdd(const std::string& stream_name, const std::vector<std::pair<std::string, std::string> >& field_values, const std::int64_t cut_time) const
 {
     if (field_values.empty())
@@ -668,6 +731,281 @@ std::vector<int> RedisManager::xAckDel(const std::string& stream_name, const std
             }
         }
     }
+    return values;
+}
+
+bool RedisManager::sAdd(const std::string& set_name, const std::vector<std::string>& values) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    detail::ArgvBuilder builder;
+    builder.pushLiteral("SADD", 4);
+    builder.push(set_name);
+    for (const auto& value: values)
+    {
+        builder.push(value);
+    }
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(builder.argv.size()), builder.argv.data(), builder.argvlen.data()));
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    if (!reply || reply->type != REDIS_REPLY_INTEGER)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool RedisManager::sAdd(const std::string& set_name, const std::string& value) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    detail::ArgvBuilder builder;
+    builder.pushLiteral("SADD", 4);
+    builder.push(set_name);
+    builder.push(value);
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(builder.argv.size()), builder.argv.data(), builder.argvlen.data()));
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    if (!reply || reply->type != REDIS_REPLY_INTEGER)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool RedisManager::sIsMember(const std::string& set_name, const std::string& value) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    detail::ArgvBuilder builder;
+    builder.pushLiteral("SISMEMBER", 9);
+    builder.push(set_name);
+    builder.push(value);
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(builder.argv.size()), builder.argv.data(), builder.argvlen.data()));
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+    if (!reply || reply->type != REDIS_REPLY_INTEGER)
+    {
+        return false;
+    }
+    return reply->integer == 1;
+}
+
+std::int64_t RedisManager::sRem(const std::string& set_name, const std::vector<std::string>& values) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return -1;
+    }
+
+    detail::ArgvBuilder builder;
+    builder.pushLiteral("SREM", 4);
+    builder.push(set_name);
+    for (const auto& value: values)
+    {
+        builder.push(value);
+    }
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(builder.argv.size()), builder.argv.data(), builder.argvlen.data()));
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    if (!reply || reply->type != REDIS_REPLY_INTEGER)
+    {
+        return -1;
+    }
+    return reply->integer;
+}
+
+bool RedisManager::sRem(const std::string& set_name, const std::string& value) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return false;
+    }
+
+    detail::ArgvBuilder builder;
+    builder.pushLiteral("SREM", 4);
+    builder.push(set_name);
+    builder.push(value);
+
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(builder.argv.size()), builder.argv.data(), builder.argvlen.data()));
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    if (!reply || reply->type != REDIS_REPLY_INTEGER)
+    {
+        return false;
+    }
+    return true;
+}
+
+std::vector<std::string> RedisManager::sMembers(const std::string& set_name) const
+{
+    auto* connect = m_connectPool->getConnection();
+    if (connect == nullptr)
+    {
+        return {};
+    }
+
+    detail::ArgvBuilder builder;
+    builder.pushLiteral("SMEMBERS", 8);
+    builder.push(set_name);
+
+    auto* reply = static_cast<redisReply*>(redisCommandArgv(connect, static_cast<int>(builder.argv.size()), builder.argv.data(), builder.argvlen.data()));
+
+    Defer defer([connect, &reply, this]() noexcept
+        {
+            if (reply)
+            {
+                freeReplyObject(reply);
+            }
+            if (connect == nullptr)
+            {
+                return;
+            }
+            // 空 reply 或连接层错误 -> 坏连接；REDIS_REPLY_ERROR 连接仍健康
+            if (reply == nullptr || connect->err != 0)
+            {
+                m_connectPool->recycleBadConnection(connect);
+            }
+            else
+            {
+                m_connectPool->returnConnection(connect);
+            }
+        });
+
+    if (!reply || reply->type != REDIS_REPLY_ARRAY)
+    {
+        return {};
+    }
+
+    std::vector<std::string> values;
+    values.reserve(reply->elements);
+    for (size_t i = 0; i < reply->elements; ++i)
+    {
+        const redisReply* friend_id = reply->element[i];
+        if (friend_id->type == REDIS_REPLY_STRING)
+        {
+            values.emplace_back(friend_id->str, friend_id->len);
+        }
+    }
+
     return values;
 }
 

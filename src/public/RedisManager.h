@@ -72,6 +72,13 @@ public:
     /// 获取用户ip，用户不在线返回空字符串
     [[nodiscard]] std::string isUserOnLine(std::uint64_t uid) const;
 
+    [[nodiscard]] bool isFriend(std::uint64_t online_uid, std::uint64_t other_uid) const;
+    [[nodiscard]] bool addFriend(std::uint64_t online_uid, std::uint64_t other_uid) const;
+    [[nodiscard]] bool delFriend(std::uint64_t online_uid, std::uint64_t other_uid) const;
+    [[nodiscard]] std::vector<std::string> getFriendList(std::uint64_t uid) const;
+    // 加载好友列表到redis，不会改变好友的set
+    [[nodiscard]] bool loadFriends(std::uint64_t online_uid, const std::vector<std::uint64_t>& other_uids) const;
+
     [[nodiscard]] bool xAdd(const std::string& stream_name, const std::vector<std::pair<std::string, std::string> >& field_values, std::int64_t cut_time = 7 * 24 * 3600 * 1000) const;
     // start_id "0"从头 或 "$"最新 或具体 ID
     [[nodiscard]] bool xGroup(const std::string& stream_name, const std::string& group_name, const std::string& start_id = "0", bool shoold_make_stream = true) const;
@@ -86,6 +93,14 @@ public:
      * @return 1 表示成功删除，-1 表示消息不存在，2 表示因 ACKED 策略而跳过了删除（因为有组未确认）。
      */
     [[nodiscard]] std::vector<int> xAckDel(const std::string& stream_name, const std::string& group_name, const std::vector<std::string>& ids, const std::string& type = "ACKED") const;
+
+    // set
+    [[nodiscard]] bool sIsMember(const std::string& set_name, const std::string& value) const;
+    [[nodiscard]] bool sAdd(const std::string& set_name, const std::vector<std::string>& values) const;
+    [[nodiscard]] bool sAdd(const std::string& set_name, const std::string& values) const;
+    [[nodiscard]] std::int64_t sRem(const std::string& set_name, const std::vector<std::string>& values) const;
+    [[nodiscard]] bool sRem(const std::string& set_name, const std::string& value) const;
+    [[nodiscard]] std::vector<std::string> sMembers(const std::string& set_name) const;
 
     [[nodiscard]] bool get(const std::string& key, std::string& value) const;
     [[nodiscard]] bool set(const std::string& key, const std::string& value, long ex = 30) const;
@@ -126,5 +141,7 @@ private:
 #define USER_OFFLINE_MESSAGE_STREAM "offlinestream_" // 用户离线消息队列 + uid
 #define GROUP_OFFLINE_MESSAGE_STREAM "offlinestream_group_" // 群聊用户离线消息队列 + uid
 #define USER_XGROUP_NAME "userxgroup_" // 用户聊天消息消费组 + uid
+
+#define USER_FRIEND_SET "userfriendset_" // 用户好友集合 + uid --- uid->(uid1,uid2...)
 
 #endif //GATESERVER_REDISMANAGER_H

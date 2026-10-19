@@ -219,6 +219,13 @@ void LogicSystem::registerCallBacks()
             {
                 ackChatMessageHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_DEL_FRIEDN_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data)
+            {
+                delFriendHandler(session, message_data);
+            };
 }
 
 void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -260,9 +267,22 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         return;
     }
-    else
+
+    // 加载好友列表到redis
+    if (!RedisManager::GetInstance().existsKey(USER_FRIEND_SET + uid_str))
     {
-        return_value["error"] = ErrorCode::SUCCESS;
+        // 加入一个空值，防止用户在线时好友被删为0使redis set被删除，再次添加好友时会因为set不存在而产生“你是对方的好友而对方不是你的好友”的bug
+        std::vector<std::uint64_t> friend_uids{};
+        friend_uids.push_back(0);
+        for (const auto& [r, friend_uid]: MySqlManager::GetInstance().getUserFriendList(uid))
+        {
+            friend_uids.push_back(friend_uid);
+        }
+        if (!RedisManager::GetInstance().loadFriends(uid, friend_uids))
+        {
+            return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+            return;
+        }
     }
 
     std::string base_key = USER_BASE_INFO + uid_str;
@@ -298,6 +318,7 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
 
     // PEL 中是否有"已投递未 ACK"的消息；提示客户端登录后立即拉取
     return_value["has_pending"] = RedisManager::GetInstance().getPendingMessageCount(uid) > 0 ? "1" : "0";
+    return_value["error"] = ErrorCode::SUCCESS;
 }
 
 void LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& /*message_data*/) const
@@ -553,6 +574,11 @@ void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& sess
         return;
     }
 
+    if (state == 1 && !RedisManager::GetInstance().addFriend(session->getUserId(), sender_uid))
+    {
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        return;
+    }
     return_value["error"] = ErrorCode::SUCCESS;
 
 
@@ -592,6 +618,12 @@ void LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& sessio
         message_type > 4 || message_type < 1)
     {
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        return;
+    }
+
+    if (!RedisManager::GetInstance().isFriend(session->getUserId(), to_uid))
+    {
+        return_value["error"] = ErrorCode::NOT_FRIEND;
         return;
     }
 
@@ -711,6 +743,34 @@ void LogicSystem::ackChatMessageHandler(const std::shared_ptr<CSession>& session
 
     RedisManager::GetInstance().ackAndDelChatMessages(session->getUserId(), message_ids);
     return_value["error"] = ErrorCode::SUCCESS;
+}
+
+void LogicSystem::delFriendHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_DEL_FRIEDN_RSP)
+
+    return_value["uid"] = root["uid"].asString(); // 用于客户端标识请求编号
+    std::uint64_t friend_uid{};
+    if (!uid_codec::ParseUid(root["uid"].asString(), friend_uid))
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        return;
+    }
+
+    const auto code = MySqlManager::GetInstance().deleteFriend(session->getUserId(), friend_uid);
+    if (code == -1)
+    {
+        return_value["error"] = ErrorCode::NOT_FRIEND;
+        return;
+    }
+    if (code == -10 || code != 0 ||
+        !RedisManager::GetInstance().delFriend(session->getUserId(), friend_uid))
+    {
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        return;
+    }
+
+    return_value["error"] = ErrorCode::SUCCESS; // 不需要通知被删除的好友
 }
 
 bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid, const std::string& user_ip)

@@ -67,13 +67,14 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 
 **失败**（仅含 `error`）
 
-| error | 含义 |
-| ------- | ------ |
-| `0` | 登录成功（此时才会携带 `uid` / `token` / `name`） |
-| `1020` | uid 不是合法字符串（非字符串、空串或含非数字字符），未查询 Redis / MySQL |
-| `1011` | StatusServer 中不存在该 uid 的 token，**或**登录后回查用户信息失败（数据库无该 uid / 数据库不可用） |
-| `1012` | token 与服务端记录不一致 |
-| `1002` | 调用 StatusServer 失败或超时 |
+| error  | 含义                                                                                                                                   |
+|--------|----------------------------------------------------------------------------------------------------------------------------------------|
+| `0`    | 登录成功（此时才会携带 `uid` / `token` / `name`）                                                                                      |
+| `1020` | uid 不是合法字符串（非字符串、空串或含非数字字符），未查询 Redis / MySQL                                                               |
+| `1011` | StatusServer 中不存在该 uid 的 token，**或**登录后回查用户信息失败（数据库无该 uid / 数据库不可用）                                    |
+| `1012` | token 与服务端记录不一致                                                                                                               |
+| `1013` | 依赖服务不可用：Redis 注册 / 写在线状态失败，**或好友列表载入 Redis 失败**（见 [`api-chat.md`](api-chat.md#11-好友关系校验redis-set)） |
+| `1002` | 调用 StatusServer 失败或超时                                                                                                           |
 
 > 响应体由 JsonCpp 以 `toStyledString()` 序列化，是**带缩进的多行 JSON**；非 ASCII 字符可能以 `\uXXXX` 形式转义，客户端应按标准 JSON 解析而非按字节匹配。
 
@@ -146,8 +147,9 @@ print(message_id, json.loads(body.decode()))
 ## 5. 已知限制（后续规划）
 
 - 已实现 `1016` 心跳用于**在线状态续期**，但尚未基于心跳做**空闲超时回收**（长时间无心跳不会主动断开连接）；
-- 已实现登录、用户搜索、好友申请/同步/好友列表、聊天消息发送 / 通知 / 拉取 / 确认（含 PEL 重投）、心跳；
-  **历史记录与群聊尚未实现**；
+- 已实现登录（含好友集合载入）、用户搜索、好友申请/同步/好友列表/删除好友、聊天消息发送（含好友校验）/通知/拉取/确认（含 PEL
+  重投）、
+  心跳； **历史记录与群聊尚未实现**；
 - 明文传输（未启用 TLS），且无消息级鉴权（登录成功后不再校验后续帧）。
 
 ## 6. 聊天消息接口
@@ -165,6 +167,10 @@ print(message_id, json.loads(body.decode()))
 | `1026`     | `MESSAGE_ACK_CHAT_MESSAGE_RSP`   | 服务端 → 客户端         | 确认回包             |
 
 > `MESSAGE_NOTIFY_CHAT_MSG_REQ`（`1015`）已定义但未使用。
+>
+> **好友校验**：发送 `1013` 前服务端会检查 Redis 好友集合 `userfriendset_<uid>`，非好友返回 `1014`（
+> `error = 1022 NOT_FRIEND`），
+> 消息不会写入离线消息流。集合的载入 / 续期 / 过期规则见 [`api-chat.md`](api-chat.md#11-好友关系校验redis-set)。
 
 ## 7. 好友相关接口
 
@@ -184,3 +190,5 @@ print(message_id, json.loads(body.decode()))
 | `1019`     | `MESSAGE_CHECK_IS_USER_ONLINE_RSP` | 服务端 → 客户端         |
 | `1020`     | `MESSAGE_SYNC_FRIEND_LIST_REQ`     | 客户端 → 服务端         |
 | `1021`     | `MESSAGE_SYNC_FRIEND_LIST_RSP`     | 服务端 → 客户端         |
+| `1027`     | `MESSAGE_DEL_FRIEDN_REQ`           | 客户端 → 服务端         |
+| `1028`     | `MESSAGE_DEL_FRIEDN_RSP`           | 服务端 → 客户端         |

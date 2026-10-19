@@ -38,31 +38,36 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 
 ### 1.2 Redis 键位
 
-| 键 | 类型 | TTL | 写入方 | 用途 |
-|----|------|-----|--------|------|
-| `code_<email>` | string | 由 VerifyServer 决定 | VerifyServer | 邮箱验证码 |
-| `utoken_<uid>` | string | 30s | StatusServer | 登录 token；ChatServer 登录帧校验用 |
-| `uip_<uid>` | string | 30s | ChatServer | 用户在线所在实例名；客户端心跳（`1016`）续期，过期即视为离线 |
-| `ubaseinfo_<uid>` | string(JSON) | 500s | ChatServer | 用户基础信息缓存 |
-| `ubaseinfo_name_<name>` | string(JSON) | 500s | ChatServer | 用户名 → uid 列表缓存 |
-| `serverlist` | hash | 无 | ChatServer | 字段为实例名，值为 `host:port`（服务列表） |
-| `serverheartbeat_<name>` | string | 30s | ChatServer | 实例存活标记 |
-| `logincount_<name>` | string | 30s | ChatServer | 实例当前连接数 |
+| 键                       | 类型         | TTL                  | 写入方       | 用途                                                                                                          |
+|--------------------------|--------------|----------------------|--------------|---------------------------------------------------------------------------------------------------------------|
+| `code_<email>`           | string       | 由 VerifyServer 决定 | VerifyServer | 邮箱验证码                                                                                                    |
+| `utoken_<uid>`           | string       | 30s                  | StatusServer | 登录 token；ChatServer 登录帧校验用                                                                           |
+| `uip_<uid>`              | string       | 30s                  | ChatServer   | 用户在线所在实例名；客户端心跳（`1016`）续期，过期即视为离线                                                  |
+| `ubaseinfo_<uid>`        | string(JSON) | 500s                 | ChatServer   | 用户基础信息缓存                                                                                              |
+| `ubaseinfo_name_<name>`  | string(JSON) | 500s                 | ChatServer   | 用户名 → uid 列表缓存                                                                                         |
+| `userfriendset_<uid>`    | set          | 7d                   | ChatServer   | 好友 uid 集合；登录时若 key 不存在则从 MySQL 全量载入，发送消息前用 `SISMEMBER` 校验好友；不活跃 7 天自动过期 |
+| `serverlist`             | hash         | 无                   | ChatServer   | 字段为实例名，值为 `host:port`（服务列表）                                                                    |
+| `serverheartbeat_<name>` | string       | 30s                  | ChatServer   | 实例存活标记                                                                                                  |
+| `logincount_<name>`      | string       | 30s                  | ChatServer   | 实例当前连接数                                                                                                |
 
-- 后 4 个键由 ChatServer 启动时写入，并由后台线程每 **10s** 续期一次；进程退出时立即摘除，崩溃时 30s 内自动过期。
+- `serverlist`、`serverheartbeat_<name>`、`logincount_<name>` 由 ChatServer 启动时写入，并由后台线程每 **10s**
+  续期一次；进程退出时立即摘除，崩溃时 30s 内自动过期。
+- `userfriendset_<uid>` 采用 7 天滑动过期：好友校验命中（成功发消息）/ 增删好友时续期，登录本身不续期。连续 7
+  天不活跃的用户，好友集合会自动从 Redis 释放，下次登录时再从 MySQL 重建（详见 [
+  `api-chat.md`](api-chat.md#11-好友关系校验redis-set)）。
 - StatusServer 分发 ChatServer 时只考虑「`serverlist` 中存在该实例 **且** `serverheartbeat_<name>` 未过期」的实例，连接数取 `logincount_<name>`（缺失按 `0`）；若没有任何存活实例（全新部署 / Redis 被清空），回落为全部配置实例并记录告警。
 
 ## 2. 文档索引
 
-| 文档                               | 内容                                                                           |
-|------------------------------------|--------------------------------------------------------------------------------|
-| [`api-http.md`](api-http.md)       | GateServer 的 5 个 HTTP 接口、公共约定与响应示例                               |
-| [`api-grpc.md`](api-grpc.md)       | 三个 gRPC 服务方法的 IDL、调用方与行为约定                                     |
-| [`api-tcp.md`](api-tcp.md)         | ChatServer 的私有 TCP 帧协议与消息定义                                         |
-| [`api-friend.md`](api-friend.md)   | 好友验证系统：申请 / 验证 / 通知 / 列表 / 在线查询与 gRPC 转发                 |
-| [`api-chat.md`](api-chat.md)       | 聊天消息：发送、通知、拉取（含 PEL 重投）、确认收到（ACK）与 Redis Stream 存储 |
-| [`error-codes.md`](error-codes.md) | 全局错误码表（HTTP 与 gRPC 共用）                                              |
-| [`api-changes.md`](api-changes.md) | 接口变更记录：新增 / 修改 / 删除与兼容性说明                                   |
+| 文档                               | 内容                                                                         |
+|------------------------------------|------------------------------------------------------------------------------|
+| [`api-http.md`](api-http.md)       | GateServer 的 5 个 HTTP 接口、公共约定与响应示例                             |
+| [`api-grpc.md`](api-grpc.md)       | 三个 gRPC 服务方法的 IDL、调用方与行为约定                                   |
+| [`api-tcp.md`](api-tcp.md)         | ChatServer 的私有 TCP 帧协议与消息定义                                       |
+| [`api-friend.md`](api-friend.md)   | 好友验证系统：申请 / 验证 / 通知 / 列表 / 删除 / 在线查询与 gRPC 转发        |
+| [`api-chat.md`](api-chat.md)       | 聊天消息：发送（好友校验）、通知、拉取（含 PEL 重投）、确认收到（ACK）与存储 |
+| [`error-codes.md`](error-codes.md) | 全局错误码表（HTTP 与 gRPC 共用）                                            |
+| [`api-changes.md`](api-changes.md) | 接口变更记录：新增 / 修改 / 删除与兼容性说明                                 |
 
 ## 3. 典型调用链
 
@@ -83,8 +88,16 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 1. 客户端 → `POST /user_login`（GateServer）
 2. GateServer → MySQL 校验 `uid + password`（Argon2id）
 3. GateServer → `StatusService.GetChatServer`（StatusServer）：按连接数最少分配一个 ChatServer，并签发 token
-4. 客户端携带 `uid + token` 连接该 ChatServer，发送 `message_id = 0` 的登录帧
-5. ChatServer → `StatusService.Login`（StatusServer）校验 token，随后回 `message_id = 1` 的响应帧
+4. 客户端携带 `uid + token` 连接该 ChatServer，发送 `message_id = 1001` 的登录帧
+5. ChatServer → `StatusService.Login`（StatusServer）校验 token，并在缓存缺失时把好友列表载入 Redis `userfriendset_<uid>`
+   ，随后回 `message_id = 1002` 的响应帧
+
+**发送聊天消息**
+
+1. 客户端 → ChatServer 发送 `1013`（`to_uid` / `type` / `body` / `msg_id`）
+2. ChatServer 用 Redis `userfriendset_<from_uid>` 做 `SISMEMBER` 好友校验：不是好友 → `1014` 返回 `1022`，消息不落库
+3. 校验通过 → 写入 `offlinestream_<to_uid>`，回 `1014`（`error = 0` 仅代表已入队）
+4. 对端在线 → 推送 `1022`；接收方用 `1023` 拉取，处理后用 `1025` 确认
 
 ## 4. 版本与约定
 

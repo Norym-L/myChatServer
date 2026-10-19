@@ -47,6 +47,8 @@ private:
     void syncChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     // 客户端确认收到聊天消息 客户端收到消息->发送服务器确认
     void ackChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    void delFriendHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+
 
     [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);
     [[nodiscard]] static bool GrpcAuthFriendRequestAndNotifyToOther(std::uint64_t sender_uid, std::uint64_t add_friend_request_id, int state, const std::string& user_ip); // FriendApplyStatus

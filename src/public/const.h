@@ -31,6 +31,7 @@ enum ErrorCode
     USER_OUTLINE                       = 1019, // 用户离线
     REQUEST_VALUE_INVALID              = 1020, // 客户端请求数据非法
     DOUBLE_HANDLE_REQUEST              = 1021, // 重复处理请求
+    NOT_FRIEND                         = 1022, // 不是好友关系
 };
 
 #define MAX_LENGTH      (1024 * 2)
@@ -67,6 +68,8 @@ enum MessageType : std::uint16_t
     MESSAGE_SYNC_CHAT_MESSAGE_RSP,    //同步、获取接收聊天消息回包
     MESSAGE_ACK_CHAT_MESSAGE_REQ,     //客户端确认收到消息
     MESSAGE_ACK_CHAT_MESSAGE_RSP,     //客户端确认收到消息回包
+    MESSAGE_DEL_FRIEDN_REQ,           //删除好友请求
+    MESSAGE_DEL_FRIEDN_RSP,           //删除好友回包
 };
 
 #include <fmt/format.h>
