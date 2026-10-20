@@ -10,9 +10,18 @@
 
 using boost::asio::ip::tcp;
 
+namespace net = boost::asio;
+
+#define MAX_LENGTH      65535
+#define MAX_ID_NUMBER   22222
+#define HEAD_TOTAL_LEN  4 // tcp头部长度
+#define HEAD_ID_LEN     2 // tcp头部 message_id 长度
+#define HEAD_DATA_LEN   2 // tcp头部 message_len 长度
+#define MAX_SEND_QUEUE_LEN 4 // tcp发送队列最大长度
+
+
 class CServer;
 class ReceiveNode;
-class MessageNode;
 class SendNode;
 
 class CSession : public std::enable_shared_from_this<CSession>
@@ -27,13 +36,8 @@ public:
     // 绑定用户id
     void setUserId(std::uint64_t uid);
     [[nodiscard]] std::uint64_t getUserId() const;
-    void asyncReadHead(std::uint8_t head_len = HEAD_TOTAL_LEN);
-    void AsyncReadBody(size_t message_len);
 
-    /// 读取完整长度
-    void asyncReadFull(size_t len, const std::function<void(const boost::system::error_code&, size_t)>& handle);
-    /// 读取指定的字节数
-    void asyncReadLen(size_t read_len, size_t total_len, const std::function<void(const boost::system::error_code&, size_t)>& handle);
+    net::awaitable<void> readLoop();
 
     void send(const char* message, size_t len, short message_id);
     void handleWrite(const boost::system::error_code& error_code, std::shared_ptr<CSession> shared_self);
@@ -56,68 +60,35 @@ public:
     void close();
 
 private:
-    char m_data[MAX_LENGTH];
+    char m_headData[HEAD_TOTAL_LEN];
     tcp::socket m_socket;
     CServer* m_server;
     std::string m_sessionId;
-    std::shared_ptr<MessageNode> m_receiveHeadNode;
-    std::shared_ptr<ReceiveNode> m_receiveMessageNode;
     std::mutex m_sendMutex;
     std::queue<std::shared_ptr<SendNode> > m_sendQueue;
     std::uint64_t m_userId{0};
 };
 
 
-class MessageNode
-{
-    friend class CSession;
-
-public:
-    ~MessageNode()
-    {
-        ::free(m_data);
-    }
-
-private:
-    explicit MessageNode(const std::uint8_t len = HEAD_TOTAL_LEN)
-        : m_len(len)
-    {
-        m_data = static_cast<char*>(::malloc(sizeof(char) * len));
-    }
-
-    void clear() const
-    {
-        ::memset(m_data, 0, sizeof(char) * m_len);
-    }
-
-    char* m_data;
-    size_t m_len;
-};
-
-
 class ReceiveNode
 {
-    friend class CSession;
-    friend class LogicSystem;
-
 public:
     ~ReceiveNode()
     {
-        ::free(m_data);
+        ::free(data);
     }
 
-private:
-    explicit ReceiveNode(const size_t len, const short id)
-        : m_messageId(id), m_totalLen(len)
+    explicit ReceiveNode(const std::uint16_t len, const short id)
+        : messageId(id), totalLen(len)
     {
-        // 多分配 1 字节以容纳结尾 '\0'（CSession.cpp 会写 m_data[m_totalLen]）
-        m_data = static_cast<char*>(::malloc(sizeof(char) * (len + 1)));
+        // 显示使用 len，不靠结尾'\0'
+        data = static_cast<char*>(::malloc(sizeof(char) * len));
     }
 
-    char* m_data;
-    short m_messageId;
-    size_t m_currentLen = 0;
-    size_t m_totalLen = MAX_LENGTH - 1;
+    char* data;
+    short messageId;
+    std::uint16_t currentLen = 0;
+    std::uint16_t totalLen = MAX_LENGTH;
 };
 
 class SendNode
@@ -152,15 +123,12 @@ private:
 
 class LogicNode
 {
-    friend class CSession;
-    friend class LogicSystem;
-
-private:
+public:
     LogicNode(const std::shared_ptr<CSession>& session, const std::shared_ptr<ReceiveNode>& receive_node)
-        : m_session(session), m_receviceNdoe(receive_node)
+        : session(session), receviceNode(receive_node)
     {}
 
-    std::shared_ptr<CSession> m_session;
-    std::shared_ptr<ReceiveNode> m_receviceNdoe;
+    std::shared_ptr<CSession> session;
+    std::shared_ptr<ReceiveNode> receviceNode;
 };
 #endif //GATESERVER_CSESSION_H

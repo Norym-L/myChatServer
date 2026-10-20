@@ -34,12 +34,6 @@ enum ErrorCode
     NOT_FRIEND                         = 1022, // 不是好友关系
 };
 
-#define MAX_LENGTH      (1024 * 2)
-#define HEAD_TOTAL_LEN  4 // tcp头部长度
-#define HEAD_ID_LEN     2 // tcp头部 message_id 长度
-#define HEAD_DATA_LEN   2 // tcp头部 message_len 长度
-#define MAX_SEND_QUEUE_LEN 4 // tcp发送队列最大长度
-
 enum MessageType : std::uint16_t
 {
     MESSAGE_CHAT_LOGIN_REQ = 1001,    //登录请求

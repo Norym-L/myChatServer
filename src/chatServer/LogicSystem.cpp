@@ -63,7 +63,7 @@ void LogicSystem::postMessageToQueue(const std::shared_ptr<LogicNode>& logic_nod
     if (!m_messageChannel.try_send(ec, logic_node))
     {
         spdlog::warn("[logic system] the message queue is full, drop message id: {}, error: {}",
-                     logic_node->m_receviceNdoe->m_messageId, ec.message());
+                     logic_node->receviceNode->messageId, ec.message());
     }
 }
 
@@ -152,7 +152,7 @@ net::awaitable<void> LogicSystem::dealMessage()
             co_return;
         }
 
-        const auto message_id = message_node->m_receviceNdoe->m_messageId;
+        const auto message_id = message_node->receviceNode->messageId;
         const auto call_back_function = m_callbackFunctions.find(message_id);
         if (call_back_function == m_callbackFunctions.end())
         {
@@ -161,13 +161,13 @@ net::awaitable<void> LogicSystem::dealMessage()
         }
 
         // 必须用具名变量持有报文：协程参数是引用，临时对象会在 co_await 挂起期间被销毁
-        const std::string message_data(message_node->m_receviceNdoe->m_data,
-                                       message_node->m_receviceNdoe->m_currentLen);
+        const std::string message_data(message_node->receviceNode->data,
+                                       message_node->receviceNode->currentLen);
 
         // 串行处理：上一个请求（含其中的 Redis 往返）结束才处理下一个，与旧逻辑线程模型一致
         try
         {
-            co_await call_back_function->second(message_node->m_session, message_data);
+            co_await call_back_function->second(message_node->session, message_data);
         }
         catch (const std::exception& e)
         {
