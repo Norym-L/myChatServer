@@ -6,6 +6,7 @@
 
 #include "grpc/StatusServerImpl.h"
 #include <ConfigManager.h>
+#include <RedisManager.h>
 
 static void RunServer()
 {
@@ -34,6 +35,9 @@ static void RunServer()
                                      "] is incomplete: host/port/name are required");
         }
     }
+
+    // 协程版 Redis：自带 io_context + 单线程，gRPC 处理器通过 RedisManager::wait() 同步等待结果
+    RedisManager::GetInstance().init();
 
     std::string server_address(config["StatusServer"]["host"] + ":" + config["StatusServer"]["port"]);
     StatusServerImpl server_impl;

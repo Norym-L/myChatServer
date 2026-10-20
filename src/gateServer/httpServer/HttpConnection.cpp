@@ -1,9 +1,35 @@
 #include "HttpConnection.h"
 
 #include "LogicSystem.h"
+#include <exception>
 #include <spdlog/spdlog.h>
 
 #include <utils/UrlCodec.h>
+
+#include <boost/asio/co_spawn.hpp>
+
+namespace
+{
+std::string exception_to_string(const std::exception_ptr& ep)
+{
+    if (!ep)
+    {
+        return "no exception";
+    }
+    try
+    {
+        std::rethrow_exception(ep);
+    }
+    catch (const std::exception& e)
+    {
+        return e.what();
+    }
+    catch (...)
+    {
+        return "unknown exception";
+    }
+}
+}
 
 HttpConnection::HttpConnection(boost::asio::io_context &ioc)
     : m_socket(ioc)
@@ -88,58 +114,83 @@ void HttpConnection::writeResponse()
 void HttpConnection::handleReq()
 {
     // 请求已完整到达：重新计时，使"读取阶段"与"处理 + 回写阶段"各有独立的超时窗口，
-    // 避免同步处理（数据库/RPC）耗时较长时被读取阶段的剩余时间误杀
+    // 避免处理（数据库/RPC/Redis）耗时较长时被读取阶段的剩余时间误杀
     checkDeadLine();
     // 设置版本
     m_response.version(m_request.version());
     m_response.keep_alive(false);
+
+    // 处理器是协程：在这里拉起，完成后（或异常）再回写响应，全程沿用本条连接的执行器
+    auto self = shared_from_this();
+    net::co_spawn(m_socket.get_executor(), handleRequest(self),
+                  [self](const std::exception_ptr& ep)
+                      {
+                          if (!ep)
+                          {
+                              return;
+                          }
+                          spdlog::error("[HttpConnection] handle request failed: {}", exception_to_string(ep));
+
+                          // 处理器异常时返回 500，而不是让客户端一直等到超时
+                          http::response<http::dynamic_body> rsp;
+                          rsp.result(http::status::internal_server_error);
+                          rsp.version(self->m_request.version());
+                          rsp.keep_alive(false);
+                          rsp.set(http::field::server, "GateServer");
+                          rsp.set(http::field::content_type, "text/plain");
+                          beast::ostream(rsp.body()) << "internal server error\n";
+                          self->m_response = std::move(rsp);
+                          self->writeResponse();
+                      });
+}
+
+net::awaitable<void> HttpConnection::handleRequest(std::shared_ptr<HttpConnection> self)
+{
     // get 请求
     if (m_request.method() == http::verb::get)
     {
         preParseGetParam();
-        const bool success = LogicSystem::GetInstance().handleGet(m_getUrl, shared_from_this());
+        const bool success = co_await LogicSystem::GetInstance().handleGet(m_getUrl, self);
         if (!success)
         {
             m_response.result(http::status::not_found);
             m_response.set(http::field::content_type, "text/plain");
             beast::ostream(m_response.body()) << "url not found\n";
             writeResponse();
-            return;
+            co_return;
         }
         m_response.result(http::status::ok);
         m_response.set(http::field::server, "GateServer");
         writeResponse();
+        co_return;
     }
 
     if (m_request.method() == http::verb::post)
     {
-        const bool success = LogicSystem::GetInstance().handlePost(m_request.target(), shared_from_this());
+        const bool success = co_await LogicSystem::GetInstance().handlePost(m_request.target(), self);
         if (!success)
         {
             m_response.result(http::status::not_found);
             m_response.set(http::field::content_type, "text/plain");
             beast::ostream(m_response.body()) << "url not found\n";
             writeResponse();
-            return;
+            co_return;
         }
         m_response.result(http::status::ok);
         m_response.set(http::field::server, "GateServer");
         writeResponse();
+        co_return;
     }
 
     // 非 GET/POST 方法不路由任何处理器，需显式回应 405，否则客户端只能等超时
-    if (m_request.method() != http::verb::get &&
-        m_request.method() != http::verb::post)
+    m_response.result(http::status::method_not_allowed);
+    // HEAD 响应不应携带实体主体
+    if (m_request.method() != http::verb::head)
     {
-        m_response.result(http::status::method_not_allowed);
-        // HEAD 响应不应携带实体主体
-        if (m_request.method() != http::verb::head)
-        {
-            m_response.set(http::field::content_type, "text/plain");
-            beast::ostream(m_response.body()) << "method not allowed\n";
-        }
-        writeResponse();
+        m_response.set(http::field::content_type, "text/plain");
+        beast::ostream(m_response.body()) << "method not allowed\n";
     }
+    writeResponse();
 }
 
 void HttpConnection::preParseGetParam()
@@ -162,7 +213,7 @@ void HttpConnection::preParseGetParam()
     while ((pos = query_string.find('&')) != std::string::npos)
     {
         auto pair = query_string.substr(0, pos);
-        size_t eq_pos = pair.find('=');
+        const size_t eq_pos = pair.find('=');
         if (eq_pos != std::string::npos)
         {
             key = url_codec::UrlDecode(pair.substr(0, eq_pos)); // 查询参数需解码后再使用

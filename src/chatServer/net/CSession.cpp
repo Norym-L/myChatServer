@@ -3,7 +3,6 @@
 #include <boost/uuid.hpp>
 #include <json/value.h>
 
-#include "RedisManager.h"
 #include "../LogicSystem.h"
 #include "../CServer.h"
 
@@ -275,7 +274,11 @@ void CSession::notifyReceiveMessage()
 
 void CSession::close()
 {
-    (void) RedisManager::GetInstance().del(USER_IP_PERFIX + std::to_string(m_userId));
+    if (m_userId != 0)
+    {
+        // Redis 命令只能由逻辑线程发起：这里只投递任务，不阻塞连接线程
+        LogicSystem::GetInstance().offlineUser(m_userId);
+    }
     // socket 为共享资源：send() 会在逻辑线程发起 async_write，关闭操作必须与之互斥，避免并发操作同一 socket
     std::lock_guard<std::mutex> lock(m_sendMutex);
     boost::system::error_code ec;

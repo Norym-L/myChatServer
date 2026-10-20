@@ -13,6 +13,7 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
+#include <boost/asio/awaitable.hpp>
 #include <string>
 
 namespace beast = boost::beast;   // from <boost/beast.hpp>
@@ -33,6 +34,8 @@ private:
     void checkDeadLine();
     void writeResponse();
     void handleReq();
+    /// 请求处理协程：路由 + 处理器（内部 co_await 访问 Redis）都在本条连接的执行器上串行执行
+    boost::asio::awaitable<void> handleRequest(std::shared_ptr<HttpConnection> self);
     /// 解析get请求参数
     void preParseGetParam();
     tcp::socket m_socket;

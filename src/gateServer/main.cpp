@@ -4,7 +4,6 @@
 #include "httpServer/CServer.h"
 #include "../public/const.h"
 
-#include <hiredis/hiredis.h>
 #include <spdlog/spdlog.h>
 
 #include <RedisManager.h>
@@ -42,7 +41,8 @@ int main(int argc, char *argv[])
         spdlog::info("Gate Server warming up dependencies...");
         ConfigManager::GetInstance(); // 配置已在上文读取，此处保证初始化顺序清晰
         MySqlManager::GetInstance();
-        RedisManager::GetInstance();
+        // 协程版 Redis：自带 io_context + 单线程，HTTP 工作线程上的协程会自动切到该线程执行命令
+        RedisManager::GetInstance().init();
         StatusGrpcClient::GetInstance();
         VerifyGrpcClient::GetInstance();
         spdlog::info("Gate Server dependencies ready");

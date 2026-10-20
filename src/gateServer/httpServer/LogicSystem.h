@@ -10,11 +10,17 @@
 
 #include <functional>
 #include <map>
+#include <memory>
+#include <string>
+
+#include <boost/asio/awaitable.hpp>
 
 #include "Singleton.h"
 
 class HttpConnection;
-using HttpHandler = std::function<void(std::shared_ptr<HttpConnection>)>;
+
+// 处理回调是协程：内部用 co_await 访问 Redis，不阻塞所在的工作线程
+using HttpHandler = std::function<boost::asio::awaitable<void>(std::shared_ptr<HttpConnection>)>;
 
 class LogicSystem : public TSingLeton<LogicSystem>
 {
@@ -22,8 +28,8 @@ class LogicSystem : public TSingLeton<LogicSystem>
 
 public:
     ~LogicSystem();
-    bool handleGet(std::string path, std::shared_ptr<HttpConnection> connection);
-    bool handlePost(std::string path, std::shared_ptr<HttpConnection> connection);
+    boost::asio::awaitable<bool> handleGet(std::string path, std::shared_ptr<HttpConnection> connection);
+    boost::asio::awaitable<bool> handlePost(std::string path, std::shared_ptr<HttpConnection> connection);
     void regGet(std::string url, HttpHandler handler);
     void regPost(std::string url, HttpHandler handler);
 

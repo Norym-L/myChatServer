@@ -1,11 +1,17 @@
 #include "LogicSystem.h"
 
-#include <cstdint>
+#include <charconv>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include <boost/asio/detached.hpp>
 
 #include <json/json.h>
 #include <json/reader.h>
 
 #include <Defer.h>
+#include <MessageType.h>
 #include <sql/mysql/MySqlManager.h>
 #include <utils/UidCodec.h>
 
@@ -17,126 +23,158 @@
 #include "net/CSession.h"
 #include "statusClient/StatusGrpcClient.h"
 
-LogicSystem::LogicSystem()
-    : m_beStop(false)
-{
-    RedisManager::GetInstance();
-    m_selfServerName = ResolveSelfSection(ConfigManager::GetInstance());
-    registerCallBacks();
-    m_workThread = std::thread(&LogicSystem::dealMessage, this);
-}
-
 LogicSystem::~LogicSystem()
 {
-    m_beStop = true;
-    m_conditionVariable.notify_one();
-    m_workThread.join();
+    // 关闭 channel 让消费协程退出，再停止 io_context 并回收逻辑线程
+    m_messageChannel.close();
+    m_workGuard.reset();
+    m_ioContext.stop();
+    if (m_workThread.joinable())
+    {
+        m_workThread.join();
+    }
+}
+
+LogicSystem::LogicSystem()
+    : m_workGuard(net::make_work_guard(m_ioContext)),
+      m_messageChannel(m_ioContext, 10)
+{
+    m_selfServerName = ResolveSelfSection(ConfigManager::GetInstance());
+    registerCallBacks();
+    net::co_spawn(m_ioContext, dealMessage(),
+                  [](const std::exception_ptr& ep)
+                      {
+                          if (ep)
+                          {
+                              spdlog::error("[logic system] message loop exited with error: {}", Exception_ptr_to_string(ep));
+                          }
+                      });
+    m_workThread = std::thread([this]()
+        {
+            m_ioContext.run();
+        });
 }
 
 
 void LogicSystem::postMessageToQueue(const std::shared_ptr<LogicNode>& logic_node)
 {
-    std::unique_lock<std::mutex> lock(m_mutex);
-    const size_t messageQueue_size = m_messageQueue.size();
-    if (messageQueue_size > 10)
+    // channel 是线程安全的：连接线程只负责投递，真正的处理在逻辑线程里串行执行
+    boost::system::error_code ec;
+    if (!m_messageChannel.try_send(ec, logic_node))
     {
-        // 队列太长，不要了
-        spdlog::warn("[logic system] the message queue is full");
-        return;
+        spdlog::warn("[logic system] the message queue is full, drop message id: {}, error: {}",
+                     logic_node->m_receviceNdoe->m_messageId, ec.message());
     }
-    m_messageQueue.push(logic_node);
-    lock.unlock();
-    // 必须无条件通知：仅在队列非空时通知会让空闲后的首条消息永久滞留（丢唤醒）
-    m_conditionVariable.notify_one();
 }
 
-std::shared_ptr<UserInfo> LogicSystem::GetBaseInfo(const std::string& base_key, const std::uint64_t uid)
+void LogicSystem::offlineUser(const std::uint64_t uid)
+{
+    net::co_spawn(m_ioContext, RemoveOnlineKey(uid), net::detached);
+}
+
+net::awaitable<void> LogicSystem::RemoveOnlineKey(const std::uint64_t uid)
+{
+    try
+    {
+        co_await RedisManager::GetInstance().del({USER_IP_PERFIX + std::to_string(uid)});
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic system] remove online key failed, uid: {}, error: {}", uid, e.what());
+    }
+}
+
+net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::string& base_key, const std::uint64_t uid)
 {
     // 先查redis
-    std::string info_str{};
-    if (RedisManager::GetInstance().get(base_key, info_str))
+    try
     {
-        Json::Reader reader;
-        Json::Value root;
-        reader.parse(info_str, root);
-        return std::make_shared<UserInfo>(
-            root["token"].asString(),
-            root["name"].asString(),
-            root["email"].asString(),
-            root["desc"].asString(),
-            root["icon"].asString(),
-            root["uid"].asUInt64(),
-            static_cast<Sex>(root["sex"].asUInt()));
-    }
-    else
-    {
-        // 数据库查询
-        auto user_info = MySqlManager::GetInstance().getUser(uid);
-        if (!user_info)
+        if (const auto info_str = co_await RedisManager::GetInstance().get(base_key); info_str.has_value())
         {
-            return nullptr;
+            Json::Reader reader;
+            Json::Value root;
+            reader.parse(*info_str, root);
+            co_return std::make_shared<UserInfo>(
+                root["token"].asString(),
+                root["name"].asString(),
+                root["email"].asString(),
+                root["desc"].asString(),
+                root["icon"].asString(),
+                root["uid"].asUInt64(),
+                static_cast<Sex>(root["sex"].asUInt()));
         }
+    }
+    catch (const std::exception& e)
+    {
+        // Redis 不可用时不能挡住登录：继续回落数据库
+        spdlog::warn("[logic] get base info from redis failed, key: {}, error: {}", base_key, e.what());
+    }
 
-        Json::Value root;
-        root["token"] = user_info->token;
-        root["name"] = user_info->name;
-        root["email"] = user_info->email;
-        root["desc"] = user_info->desc;
-        root["icon"] = user_info->icon;
-        root["uid"] = user_info->uid;
-        if (!RedisManager::GetInstance().set(base_key, root.toStyledString(), 500))
-        {
-            spdlog::warn("[logic][LogicSystem::getBaseInfo] Redis insert error!");
-        }
-        return user_info;
+    // 数据库查询
+    auto user_info = MySqlManager::GetInstance().getUser(uid);
+    if (!user_info)
+    {
+        co_return nullptr;
     }
+
+    Json::Value root;
+    root["token"] = user_info->token;
+    root["name"] = user_info->name;
+    root["email"] = user_info->email;
+    root["desc"] = user_info->desc;
+    root["icon"] = user_info->icon;
+    root["uid"] = user_info->uid;
+    try
+    {
+        co_await RedisManager::GetInstance().set(base_key, root.toStyledString());
+        co_await RedisManager::GetInstance().expire(base_key, 500);
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic][LogicSystem::getBaseInfo] Redis insert error: {}", e.what());
+    }
+    co_return user_info;
 }
 
-void LogicSystem::dealMessage()
+net::awaitable<void> LogicSystem::dealMessage()
 {
     for (;;)
     {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        while (m_messageQueue.empty() && !m_beStop)
+        std::shared_ptr<LogicNode> message_node;
+        try
         {
-            // 等待数据
-            m_conditionVariable.wait(lock);
+            message_node = co_await m_messageChannel.async_receive(net::use_awaitable);
+        }
+        catch (const boost::system::system_error& e)
+        {
+            // channel 已关闭（进程退出），消费协程结束
+            spdlog::debug("[logic system] dealMessage() stop: {}", e.what());
+            co_return;
         }
 
-        if (m_beStop)
-        {
-            while (!m_messageQueue.empty())
-            {
-                const auto message_node = m_messageQueue.front();
-                auto call_back_function = m_callbackFunctions.find(message_node->m_receviceNdoe->m_messageId);
-                if (call_back_function == m_callbackFunctions.end())
-                {
-                    spdlog::warn("[logic system] dealMessage() unknow message id: {}", message_node->m_receviceNdoe->m_messageId);
-                    m_messageQueue.pop();
-                    continue;
-                }
-                call_back_function->second(
-                    message_node->m_session,
-                    std::string(message_node->m_receviceNdoe->m_data, message_node->m_receviceNdoe->m_currentLen));
-                m_messageQueue.pop();
-                spdlog::info("[logic system] dealMessage() handle message id: {}", message_node->m_receviceNdoe->m_messageId);
-            }
-            break;
-        }
-
-        const auto message_node = m_messageQueue.front();
-        auto call_back_function = m_callbackFunctions.find(message_node->m_receviceNdoe->m_messageId);
+        const auto message_id = message_node->m_receviceNdoe->m_messageId;
+        const auto call_back_function = m_callbackFunctions.find(message_id);
         if (call_back_function == m_callbackFunctions.end())
         {
-            spdlog::warn("[logic system] dealMessage() unknow message id: {}", message_node->m_receviceNdoe->m_messageId);
-            m_messageQueue.pop();
+            spdlog::warn("[logic system] dealMessage() unknow message id: {}", message_id);
             continue;
         }
-        call_back_function->second(
-            message_node->m_session,
-            std::string(message_node->m_receviceNdoe->m_data, message_node->m_receviceNdoe->m_currentLen));
-        m_messageQueue.pop();
-        spdlog::info("[logic system] dealMessage() handle message id: {}", message_node->m_receviceNdoe->m_messageId);
+
+        // 必须用具名变量持有报文：协程参数是引用，临时对象会在 co_await 挂起期间被销毁
+        const std::string message_data(message_node->m_receviceNdoe->m_data,
+                                       message_node->m_receviceNdoe->m_currentLen);
+
+        // 串行处理：上一个请求（含其中的 Redis 往返）结束才处理下一个，与旧逻辑线程模型一致
+        try
+        {
+            co_await call_back_function->second(message_node->m_session, message_data);
+        }
+        catch (const std::exception& e)
+        {
+            // 单个请求失败不能拖垮整个消费循环
+            spdlog::error("[logic system] dealMessage() handle message id: {} failed, error: {}", message_id, e.what());
+        }
+        spdlog::info("[logic system] dealMessage() handle message id: {}", message_id);
     }
 }
 
@@ -145,90 +183,90 @@ void LogicSystem::registerCallBacks()
 {
     m_callbackFunctions[MessageType::MESSAGE_CHAT_LOGIN_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                loginHandler(session, message_data);
+                co_await loginHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_SEARCH_USER_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                searchUserHandler(session, message_data);
+                co_await searchUserHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_ADD_FRIEND_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                sendFriendRequestHandler(session, message_data);
+                co_await sendFriendRequestHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_SYNC_FRIEND_REQUEST_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                syncFriendRequestListHandler(session, message_data);
+                co_await syncFriendRequestListHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_HEART_BEAT_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                heartbeatHandler(session, message_data);
+                co_await heartbeatHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_CHECK_IS_USER_ONLINE_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                checkIsUserOnlineHandler(session, message_data);
+                co_await checkIsUserOnlineHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_AUTH_FRIEND_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                authFriendRequestHandler(session, message_data);
+                co_await authFriendRequestHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_SYNC_FRIEND_LIST_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                syncUserFriendList(session, message_data);
+                co_await syncUserFriendList(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_TEXT_CHAT_MSG_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                sendTextMessageHandler(session, message_data);
+                co_await sendTextMessageHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_SYNC_CHAT_MESSAGE_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                syncChatMessageHandler(session, message_data);
+                co_await syncChatMessageHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_ACK_CHAT_MESSAGE_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                ackChatMessageHandler(session, message_data);
+                co_await ackChatMessageHandler(session, message_data);
             };
 
     m_callbackFunctions[MessageType::MESSAGE_DEL_FRIEDN_REQ] = [this](
         const std::shared_ptr<CSession>& session,
-        const std::string& message_data)
+        const std::string& message_data) -> net::awaitable<void>
             {
-                delFriendHandler(session, message_data);
+                co_await delFriendHandler(session, message_data);
             };
 }
 
-void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX_WITHOUT_CHECK_LOGIN(MESSAGE_CHAT_LOGIN_RSP)
 
@@ -241,62 +279,86 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     {
         spdlog::debug("[logic system] login with invalid uid: {}", root["uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
 
     spdlog::debug("[logic system] user login, id: {}, token: {}", uid, token);
 
     const std::string uid_str = std::to_string(uid);
+    auto& redis = RedisManager::GetInstance();
+
     // 从 redis 中获取用户token
-    std::string token_value{};
-    if (!RedisManager::GetInstance().get(USER_TOKEN_PERFIX + uid_str, token_value))
+    std::optional<std::string> token_value;
+    try
+    {
+        token_value = co_await redis.get(USER_TOKEN_PERFIX + uid_str);
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic system] get token from redis failed, uid: {}, error: {}", uid, e.what());
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        co_return;
+    }
+    if (!token_value)
     {
         // 该 uid 在 Redis 里没有 token：要么 StatusServer 写入失败，要么客户端回传的 uid 与网关下发的不一致
         spdlog::warn("[logic system] token not found in redis, key: {}, client uid: {}",
                      USER_TOKEN_PERFIX + uid_str, uid);
         return_value["error"] = ErrorCode::USER_UID_INVALID;
-        return;
+        co_return;
     }
-    else if (token_value != token)
+    if (*token_value != token)
     {
         return_value["error"] = ErrorCode::USER_TOKEN_INVALID;
-        return;
+        co_return;
     }
-    else if (!RedisManager::GetInstance().registUser(uid, m_selfServerName)) // redis注册失败
+
+    if (!co_await redis.registUser(uid, m_selfServerName)) // redis注册失败
     {
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
-        return;
+        co_return;
     }
 
     // 加载好友列表到redis
-    if (!RedisManager::GetInstance().existsKey(USER_FRIEND_SET + uid_str))
+    bool friend_set_exists = false;
+    try
     {
-        // 加入一个空值，防止用户在线时好友被删为0使redis set被删除，再次添加好友时会因为set不存在而产生“你是对方的好友而对方不是你的好友”的bug
+        friend_set_exists = co_await redis.exists(USER_FRIEND_SET + uid_str);
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic system] check friend set failed, uid: {}, error: {}", uid, e.what());
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        co_return;
+    }
+    if (!friend_set_exists)
+    {
+        // 加入一个空值，防止用户在线时好友被删为0使redis set被删除，再次添加好友时会因为set不存在而产生"你是对方的好友而对方不是你的好友"的bug
         std::vector<std::uint64_t> friend_uids{};
         friend_uids.push_back(0);
         for (const auto& [r, friend_uid]: MySqlManager::GetInstance().getUserFriendList(uid))
         {
             friend_uids.push_back(friend_uid);
         }
-        if (!RedisManager::GetInstance().loadFriends(uid, friend_uids))
+        if (!co_await redis.loadFriends(uid, friend_uids))
         {
             return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
-            return;
+            co_return;
         }
     }
 
     std::string base_key = USER_BASE_INFO + uid_str;
-    auto user_info = GetBaseInfo(base_key, uid);
+    auto user_info = co_await GetBaseInfo(base_key, uid);
     if (!user_info)
     {
         // Redis 缓存未命中且 MySQL 也查不到该 uid（MySqlDao 查询异常时同样返回空）
         spdlog::warn("[logic system] base info not found, key: {}, uid: {}", base_key, uid);
         return_value["error"] = ErrorCode::USER_UID_INVALID;
-        return;
+        co_return;
     }
 
     return_value["uid"] = uid_str; // uid 对外统一为字符串
-    return_value["token"] = token_value;
+    return_value["token"] = *token_value;
     return_value["name"] = user_info->name;
     return_value["email"] = user_info->email;
     return_value["desc"] = user_info->desc;
@@ -317,11 +379,11 @@ void LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const s
     UserManager::GetInstance().setUserSession(uid, session);
 
     // PEL 中是否有"已投递未 ACK"的消息；提示客户端登录后立即拉取
-    return_value["has_pending"] = RedisManager::GetInstance().getPendingMessageCount(uid) > 0 ? "1" : "0";
+    return_value["has_pending"] = (co_await redis.getPendingMessageCount(uid)) > 0 ? "1" : "0";
     return_value["error"] = ErrorCode::SUCCESS;
 }
 
-void LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& /*message_data*/) const
+net::awaitable<void> LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& /*message_data*/) const
 {
     Json::Value return_value;
     Defer defer([this, &return_value, session]()
@@ -337,22 +399,27 @@ void LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, con
         // 未登录（尚未绑定 uid）的 session 不允许续期，避免为匿名连接刷新在线状态
         spdlog::warn("[logic system] heartbeat before login, session: {}", session->getSessionId());
         return_value["error"] = ErrorCode::USER_UID_INVALID;
-        return;
+        co_return;
     }
 
     // 续期在线状态 key：30 秒内没有再收到心跳，key 自动过期，isUserOnLine 即判定用户离线
     const auto ip_key = USER_IP_PERFIX + std::to_string(uid);
-    if (!RedisManager::GetInstance().set(ip_key, m_selfServerName, HEART_BEAT_EXPIRE_SECONDS))
+    try
     {
-        spdlog::warn("[logic][LogicSystem::heartbeatHandler] Redis insert error, uid: {}", uid);
+        co_await RedisManager::GetInstance().set(ip_key, m_selfServerName);
+        co_await RedisManager::GetInstance().expire(ip_key, HEART_BEAT_EXPIRE_SECONDS);
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic][LogicSystem::heartbeatHandler] Redis insert error, uid: {}, error: {}", uid, e.what());
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
-        return;
+        co_return;
     }
 
     return_value["error"] = ErrorCode::SUCCESS;
 }
 
-void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_SEARCH_USER_RSP)
 
@@ -369,7 +436,7 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     // 但没有 ec 判断时会以 uid=0 去查一次库
     if (ec == std::errc() && ptr == user_name_or_uid.c_str() + user_name_or_uid.size()) // 是纯数字，先找uid
     {
-        auto info = SearchUserByUid(uid);
+        auto info = co_await SearchUserByUid(uid);
         if (info) // 找到
         {
             return_value["error"] = ErrorCode::SUCCESS;
@@ -378,17 +445,17 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
             return_value["desc"] = info->desc;
             return_value["sex"] = info->sex;
             return_value["icon"] = info->icon;
-            return;
+            co_return;
         }
     }
     // 继续找用户名
-    auto infos = SearchUserByName(user_name_or_uid);
+    auto infos = co_await SearchUserByName(user_name_or_uid);
 
     if (infos.empty())
     {
         // 都没找到
         return_value["error"] = ErrorCode::USER_NOT_FOUND;
-        return;
+        co_return;
     }
 
     return_value["error"] = ErrorCode::SUCCESS;
@@ -404,7 +471,7 @@ void LogicSystem::searchUserHandler(const std::shared_ptr<CSession>& session, co
     }
 }
 
-void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_ADD_FRIEND_RSP)
 
@@ -415,12 +482,12 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
     {
         spdlog::debug("[logic system] add friend request, parse uid failed, str is {} and {}", root["uid"].asString(), root["to_uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
     if (form_uid != session->getUserId())
     {
         return_value["error"] = ErrorCode::USER_UID_INVALID;
-        return;
+        co_return;
     }
     spdlog::debug("[logic system] add friend request, from {} to {}", form_uid, to_uid);
     const std::string verify_info = root["verify_info"].asString();
@@ -451,32 +518,32 @@ void LogicSystem::sendFriendRequestHandler(const std::shared_ptr<CSession>& sess
         {
             return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         }
-        return;
+        co_return;
     }
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["add_friend_request_id"] = std::to_string(add_frined_request_id);
     // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
-    const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
-    if (user_ip.empty())
+    const auto user_ip = co_await RedisManager::GetInstance().isUserOnLine(to_uid);
+    if (!user_ip || user_ip->empty())
     {
-        return; // 对方不在线
+        co_return; // 对方不在线
     }
-    if (user_ip == m_selfServerName)
+    if (*user_ip == m_selfServerName)
     {
         // 在当前服务器
         const auto session_other = UserManager::GetInstance().getSession(to_uid);
         if (!session_other)
         {
-            return;
+            co_return;
         }
         session_other->sendAuthFriendRequest(add_frined_request_id);
         spdlog::debug("LogicSystem::sendFriendRequestHandler send friend request to {}, friend request id {}", to_uid, add_frined_request_id);
-        return;
+        co_return;
     }
-    (void) GrpcSendFriendRequestToOther(add_frined_request_id, to_uid, user_ip);
+    (void) GrpcSendFriendRequestToOther(add_frined_request_id, to_uid, *user_ip);
 }
 
-void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_SYNC_FRIEND_REQUEST_RSP)
 
@@ -485,12 +552,12 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
     {
         spdlog::debug("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
     if (uid != session->getUserId())
     {
         return_value["error"] = ErrorCode::USER_UID_INVALID;
-        return;
+        co_return;
     }
     spdlog::debug("[logic system] sync friend request list, uid: {}", uid);
 
@@ -515,7 +582,7 @@ void LogicSystem::syncFriendRequestListHandler(const std::shared_ptr<CSession>& 
     }
 }
 
-void LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_CHECK_IS_USER_ONLINE_RSP)
 
@@ -524,18 +591,17 @@ void LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr<CSession>& sess
     {
         spdlog::debug("[logic system] check user online request, parse uid failed, str is {}", root["uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
     spdlog::debug("[logic system] check user online request, check the uid {}", uid);
 
     const auto ip_key = USER_IP_PERFIX + std::to_string(uid);
-    std::string value;
-    const auto isOnline = RedisManager::GetInstance().get(ip_key, value);
+    const auto isOnline = co_await RedisManager::GetInstance().get(ip_key);
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["online"] = isOnline ? "online" : "offline";
 }
 
-void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_AUTH_FRIEND_RSP)
 
@@ -545,14 +611,14 @@ void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& sess
     {
         spdlog::debug("[logic system] authFriendRequestHandler, parse add_friend_request_id failed, str is {}", root["add_friend_request_id"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
     int state{};
     if (!uid_codec::ParseNumber<int>(root["state"].asString(), state) ||
         state != 1 && state != 2) // 只能是接受(1)或拒绝(2)
     {
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
     spdlog::debug("[logic system] authFriendRequestHandler, id: {} state: {}", add_friend_request_id, state);
     std::uint64_t sender_uid{}; // 这条好友申请的发送者
@@ -571,40 +637,40 @@ void LogicSystem::authFriendRequestHandler(const std::shared_ptr<CSession>& sess
         {
             return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         }
-        return;
+        co_return;
     }
 
-    if (state == 1 && !RedisManager::GetInstance().addFriend(session->getUserId(), sender_uid))
+    if (state == 1 && !co_await RedisManager::GetInstance().addFriend(session->getUserId(), sender_uid))
     {
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
-        return;
+        co_return;
     }
     return_value["error"] = ErrorCode::SUCCESS;
 
 
     // redis查找发送用户验证消息，如果用户在线，通过grpc发送验证请求
-    const auto user_ip = RedisManager::GetInstance().isUserOnLine(sender_uid);
-    if (user_ip.empty())
+    const auto user_ip = co_await RedisManager::GetInstance().isUserOnLine(sender_uid);
+    if (!user_ip || user_ip->empty())
     {
-        return; // 对方不在线
+        co_return; // 对方不在线
     }
-    if (user_ip == m_selfServerName)
+    if (*user_ip == m_selfServerName)
     {
         // 在当前服务器
         const auto session_other = UserManager::GetInstance().getSession(sender_uid);
         if (!session_other)
         {
-            return;
+            co_return;
         }
         session_other->sendFriendRequestResult(add_friend_request_id, state);
         spdlog::debug("LogicSystem::authFriendRequestHandler send auth friend request to {}, status {}", sender_uid, state);
-        return;
+        co_return;
     }
 
-    (void) GrpcAuthFriendRequestAndNotifyToOther(sender_uid, add_friend_request_id, state, user_ip);
+    (void) GrpcAuthFriendRequestAndNotifyToOther(sender_uid, add_friend_request_id, state, *user_ip);
 }
 
-void LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     //  -> redis的离线序列 -> 查询是否在线 -> 发送到指定用户 -> 接收用户回包显示接收到 -> 删除redis等待序列数据
     HANDLER_PREFIX(MESSAGE_TEXT_CHAT_MSG_RSP)
@@ -618,18 +684,18 @@ void LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& sessio
         message_type > 4 || message_type < 1)
     {
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
 
-    if (!RedisManager::GetInstance().isFriend(session->getUserId(), to_uid))
+    if (!co_await RedisManager::GetInstance().isFriend(session->getUserId(), to_uid))
     {
         return_value["error"] = ErrorCode::NOT_FRIEND;
-        return;
+        co_return;
     }
 
     bool is_group = false; //TODO 判断是否为群聊
 
-    RedisManager::GetInstance().insertMessageToOffline({
+    co_await RedisManager::GetInstance().insertMessageToOffline({
         .type        = static_cast<chat_message::Type>(message_type),
         .from_uid    = session->getUserId(),
         .to_uid      = to_uid,
@@ -641,27 +707,27 @@ void LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& sessio
     return_value["error"] = ErrorCode::SUCCESS;
 
     // 通知对方有消息
-    const auto user_ip = RedisManager::GetInstance().isUserOnLine(to_uid);
-    if (user_ip.empty())
+    const auto user_ip = co_await RedisManager::GetInstance().isUserOnLine(to_uid);
+    if (!user_ip || user_ip->empty())
     {
-        return; // 对方不在线
+        co_return; // 对方不在线
     }
-    if (user_ip == m_selfServerName)
+    if (*user_ip == m_selfServerName)
     {
         // 在当前服务器
         const auto session_other = UserManager::GetInstance().getSession(to_uid);
         if (!session_other)
         {
-            return;
+            co_return;
         }
         session_other->notifyReceiveMessage();
-        return;
+        co_return;
     }
 
-    (void) GrpcNotifyReceiveMessageToOther(to_uid, user_ip);
+    (void) GrpcNotifyReceiveMessageToOther(to_uid, *user_ip);
 }
 
-void LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_SYNC_FRIEND_LIST_RSP)
 
@@ -669,7 +735,7 @@ void LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, c
 
     for (const auto& [remark, uid]: friend_list_only_uid_and_remark)
     {
-        const auto friend_info = SearchUserByUid(uid);
+        const auto friend_info = co_await SearchUserByUid(uid);
         if (!friend_info) continue;
         Json::Value json_info;
         json_info["uid"] = std::to_string(uid);
@@ -685,7 +751,7 @@ void LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, c
     return_value["count"] = std::to_string(return_value["friends"].size());
 }
 
-void LogicSystem::syncChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::syncChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_SYNC_CHAT_MESSAGE_RSP)
 
@@ -693,16 +759,18 @@ void LogicSystem::syncChatMessageHandler(const std::shared_ptr<CSession>& sessio
     if (!uid_codec::ParseNumber(root["count"].asString(), count) || count > 10) // 不能一次拉取超过10条
     {
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
+
+    auto& redis = RedisManager::GetInstance();
+    const auto uid = session->getUserId();
 
     // PEL 优先：先重投"已投递未 ACK"的消息；PEL 为空时才拉取新消息。
     // 同一批 PEL 会被反复返回，客户端必须 ACK 后再拉下一批。
-    auto messages = RedisManager::GetInstance().getMessageFromOffline(session->getUserId(), count, MessageReadMode::Pending);
+    auto messages = co_await redis.getMessageFromOffline(uid, static_cast<std::int64_t>(count), MessageReadMode::Pending);
     if (messages.empty())
     {
-        messages = RedisManager::GetInstance().getMessageFromOffline(
-            session->getUserId(), count, MessageReadMode::New);
+        messages = co_await redis.getMessageFromOffline(uid, static_cast<std::int64_t>(count), MessageReadMode::New);
     }
     return_value["error"] = ErrorCode::SUCCESS;
     return_value["count"] = std::to_string(messages.size());
@@ -725,14 +793,14 @@ void LogicSystem::syncChatMessageHandler(const std::shared_ptr<CSession>& sessio
     }
 }
 
-void LogicSystem::ackChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::ackChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_ACK_CHAT_MESSAGE_RSP)
 
     if (!root["ids"].isArray() || root["ids"].size() > 10) // 不能一次确认10条以上
     {
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
 
     std::vector<std::string> message_ids;
@@ -741,11 +809,11 @@ void LogicSystem::ackChatMessageHandler(const std::shared_ptr<CSession>& session
         message_ids.push_back(id.asString());
     }
 
-    RedisManager::GetInstance().ackAndDelChatMessages(session->getUserId(), message_ids);
+    co_await RedisManager::GetInstance().ackAndDelChatMessages(session->getUserId(), message_ids);
     return_value["error"] = ErrorCode::SUCCESS;
 }
 
-void LogicSystem::delFriendHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::delFriendHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_DEL_FRIEDN_RSP)
 
@@ -754,20 +822,24 @@ void LogicSystem::delFriendHandler(const std::shared_ptr<CSession>& session, con
     if (!uid_codec::ParseUid(root["uid"].asString(), friend_uid))
     {
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
-        return;
+        co_return;
     }
 
     const auto code = MySqlManager::GetInstance().deleteFriend(session->getUserId(), friend_uid);
     if (code == -1)
     {
         return_value["error"] = ErrorCode::NOT_FRIEND;
-        return;
+        co_return;
     }
-    if (code == -10 || code != 0 ||
-        !RedisManager::GetInstance().delFriend(session->getUserId(), friend_uid))
+    if (code != 0)
     {
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
-        return;
+        co_return;
+    }
+    if (!co_await RedisManager::GetInstance().removeFriend(session->getUserId(), friend_uid))
+    {
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        co_return;
     }
 
     return_value["error"] = ErrorCode::SUCCESS; // 不需要通知被删除的好友
@@ -815,53 +887,70 @@ bool LogicSystem::GrpcNotifyReceiveMessageToOther(const std::uint64_t to_uid, co
     return true;
 }
 
-std::shared_ptr<UserInfo> LogicSystem::SearchUserByUid(const uint64_t uid)
+net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::SearchUserByUid(const uint64_t uid)
 {
     // redis 查询
     const auto base_key = USER_BASE_INFO + std::to_string(uid);
-    std::string info_str;
-    if (RedisManager::GetInstance().get(base_key, info_str))
+    try
     {
-        Json::Reader reader;
-        Json::Value root;
-        reader.parse(info_str, root);
-        return std::make_shared<UserInfo>(
-            std::string(),
-            root["name"].asString(),
-            root["email"].asString(),
-            root["desc"].asString(),
-            root["icon"].asString(),
-            root["uid"].asUInt64(),
-            static_cast<Sex>(root["sex"].asUInt())
-            );
+        if (const auto info_str = co_await RedisManager::GetInstance().get(base_key); info_str.has_value())
+        {
+            Json::Reader reader;
+            Json::Value root;
+            reader.parse(*info_str, root);
+            co_return std::make_shared<UserInfo>(
+                std::string(),
+                root["name"].asString(),
+                root["email"].asString(),
+                root["desc"].asString(),
+                root["icon"].asString(),
+                root["uid"].asUInt64(),
+                static_cast<Sex>(root["sex"].asUInt())
+                );
+        }
     }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic system] get user base info from redis failed, key: {}, error: {}", base_key, e.what());
+    }
+
     // 查数据库
     const auto user_info = MySqlManager::GetInstance().getUser(uid);
 
-    RedisManager::GetInstance().insert(user_info);
-    return user_info;
+    if (user_info)
+    {
+        co_await RedisManager::GetInstance().insert({user_info});
+    }
+    co_return user_info;
 }
 
-std::vector<std::shared_ptr<UserInfo> > LogicSystem::SearchUserByName(const std::string& name)
+net::awaitable<std::vector<std::shared_ptr<UserInfo> > > LogicSystem::SearchUserByName(const std::string& name)
 {
     // redis 查询
     const auto base_key = USER_BASE_INFO_BY_NAME + name;
-    std::string infos_str;
-    std::vector<std::shared_ptr<UserInfo> > user_infos;
-    if (RedisManager::GetInstance().get(base_key, infos_str))
+    try
     {
-        Json::Reader reader;
-        Json::Value root;
-        reader.parse(infos_str, root);
-        for (const auto& i: root["uids"])
+        if (const auto infos_str = co_await RedisManager::GetInstance().get(base_key); infos_str.has_value())
         {
-            user_infos.push_back(SearchUserByUid(i.asUInt64()));
+            Json::Reader reader;
+            Json::Value root;
+            reader.parse(*infos_str, root);
+            std::vector<std::shared_ptr<UserInfo> > user_infos;
+            for (const auto& i: root["uids"])
+            {
+                user_infos.push_back(co_await SearchUserByUid(i.asUInt64()));
+            }
+            co_return user_infos;
         }
-        return user_infos;
     }
-    // 查数据库
-    user_infos = MySqlManager::GetInstance().getUser(name);
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic system] get user base info by name from redis failed, key: {}, error: {}", base_key, e.what());
+    }
 
-    RedisManager::GetInstance().insert(user_infos);
-    return user_infos;
+    // 查数据库
+    auto user_infos = MySqlManager::GetInstance().getUser(name);
+
+    co_await RedisManager::GetInstance().insert(user_infos);
+    co_return user_infos;
 }

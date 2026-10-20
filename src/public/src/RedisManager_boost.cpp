@@ -499,6 +499,20 @@ net::awaitable<PendingSummary> RedisManager::streamPending(const std::string str
 
 RedisManager::RedisManager() = default;
 
+RedisManager::~RedisManager()
+{
+    if (m_thread.joinable())
+    {
+        // 连接对象必须在它自己的线程上释放：先投递释放，再撤掉 work guard 让 run() 退出
+        net::post(m_ownIoContext, [this]() { m_connection.reset(); });
+        net::post(m_ownIoContext, [this]() { m_workGuard.reset(); });
+        m_thread.join();
+        return;
+    }
+    // 外部 io_context 模式：由调用方保证生命周期，这里只释放引用
+    m_connection.reset();
+}
+
 void RedisManager::init(net::io_context& io_context)
 {
     if (m_connection)
@@ -506,16 +520,36 @@ void RedisManager::init(net::io_context& io_context)
         spdlog::warn("[redis] init() called more than once, ignore");
         return;
     }
+    m_ioContext = &io_context;
     m_connection = std::make_shared<redis::connection>(io_context);
     redis::config redis_config;
     auto& config = ConfigManager::GetInstance();
     redis_config.addr.port = config["Redis"]["port"];
     redis_config.addr.host = config["Redis"]["host"];
     redis_config.password = config["Redis"]["passwd"];
+    // 与旧版 hiredis 实现保持一致：明文 TCP、db0（现有 utoken_/serverlist/离线流都在 db0）
     redis_config.database_index = 0;
     redis_config.use_ssl = false;
 
-    m_connection->async_run(redis_config, net::detached);
+    // async_run 会操作连接内部状态，必须在连接所在线程上发起
+    net::post(io_context, [connection = m_connection, redis_config = std::move(redis_config)]() mutable
+                  {
+                      connection->async_run(redis_config, net::detached);
+                  });
+}
+
+void RedisManager::init()
+{
+    if (m_connection)
+    {
+        spdlog::warn("[redis] init() called more than once, ignore");
+        return;
+    }
+    m_thread = std::thread([this]()
+        {
+            m_ownIoContext.run();
+        });
+    init(m_ownIoContext);
 }
 
 RedisManager::RedisManager(net::io_context& io_context)

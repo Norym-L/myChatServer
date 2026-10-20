@@ -24,6 +24,7 @@ int main(int argc, char* argv[])
     {
         // 必须在首次 GetInstance() 之前解析，单例构造时就会读配置文件
         ConfigManager::initFromArgs(argc, argv);
+        // 先构造 RedisManager，再构造 LogicSystem：静态析构顺序与之相反，保证 Redis 连接最后销毁
         RedisManager::GetInstance();
         MySqlManager::GetInstance();
 
@@ -66,20 +67,22 @@ int main(int argc, char* argv[])
                 grpc_server->Shutdown();
             });
 
-        spdlog::info("[{}] starting as {}, listen on port: {}", self_section, name, port);
-        CServer server(io_context, port, name);
+        // 逻辑线程的 io_context 同时承载 Redis 连接：业务协程与 Redis 命令都在这一条线程上执行
+        auto& logic = LogicSystem::GetInstance();
+        RedisManager::GetInstance().init(logic.getIoContext());
 
-        // 向 Redis 注册本实例存活与负载信息：serverlist 记录地址，
-        // serverheartbeat_<name> / logincount_<name> 带 30s TTL，由后台线程续期
-        ServerRegistry::GetInstance().start(name, config[name]["host"] + ":" + config[name]["port"]);
+        // serverheartbeat_<name> / logincount_<name> 带 30s TTL，由逻辑线程上的定时协程续期
+        ServerRegistry::GetInstance().start(logic.getIoContext(),
+                                            name, config[name]["host"] + ":" + config[name]["port"]);
         spdlog::info("[{}] registered to redis, heartbeat key: {}", self_section,
                      SERVER_HEARTBEAT_PREFIX + name);
 
+        spdlog::info("[{}] starting as {}, listen on port: {}", self_section, name, port);
+        CServer server(io_context, port, name);
         io_context.run();
 
         // 优雅退出：先摘除注册记录（存活 key / 连接数 key / 服务列表字段），再关连接池
         ServerRegistry::GetInstance().stop();
-        RedisManager::GetInstance().close();
         grpc_server_thread.join();
     }
     catch (const std::exception& e)

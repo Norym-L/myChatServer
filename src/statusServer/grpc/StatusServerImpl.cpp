@@ -1,6 +1,7 @@
 #include "StatusServerImpl.h"
 #include <charconv>
 #include <cstdint>
+#include <optional>
 #include <const.h>
 #include <string_view>
 #include <boost/uuid.hpp>
@@ -14,6 +15,64 @@ static std::string generate_unique_string()
     const boost::uuids::uuid uuid = boost::uuids::random_generator()();
     std::string unique_string = to_string(uuid);
     return unique_string;
+}
+
+// gRPC 处理器是同步的：把 Redis 协程放到 RedisManager 自己的线程上执行并等待结果。
+// 命令失败时按旧实现的语义降级（读不到当作不存在），不把异常抛给 gRPC 调用方。
+namespace
+{
+std::optional<std::string> redisGet(const std::string& key)
+{
+    try
+    {
+        return RedisManager::GetInstance().wait(RedisManager::GetInstance().get(key));
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[status server] redis get failed, key: {}, error: {}", key, e.what());
+        return std::nullopt;
+    }
+}
+
+std::optional<std::string> redisHGet(const std::string& key, const std::string& field)
+{
+    try
+    {
+        return RedisManager::GetInstance().wait(RedisManager::GetInstance().hGet(key, field));
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[status server] redis hget failed, key: {}, field: {}, error: {}", key, field, e.what());
+        return std::nullopt;
+    }
+}
+
+bool redisExists(const std::string& key)
+{
+    try
+    {
+        return RedisManager::GetInstance().wait(RedisManager::GetInstance().exists(key));
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[status server] redis exists failed, key: {}, error: {}", key, e.what());
+        return false;
+    }
+}
+
+bool redisSet(const std::string& key, const std::string& value)
+{
+    try
+    {
+        RedisManager::GetInstance().wait(RedisManager::GetInstance().set(key, value));
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[status server] redis set failed, key: {}, error: {}", key, e.what());
+        return false;
+    }
+}
 }
 
 StatusServerImpl::StatusServerImpl()
@@ -55,8 +114,9 @@ ChatServer StatusServerImpl::getChatServer()
     candidates.reserve(m_servers.size());
     for (auto& server: m_servers | std::views::values)
     {
-        const bool registered = !RedisManager::GetInstance().hGet(SERVER_LIST, server.name).empty();
-        if (registered && RedisManager::GetInstance().existsKey(SERVER_HEARTBEAT_PREFIX + server.name))
+        const auto registered_addr = redisHGet(SERVER_LIST, server.name);
+        const bool registered = registered_addr && !registered_addr->empty();
+        if (registered && redisExists(SERVER_HEARTBEAT_PREFIX + server.name))
         {
             candidates.push_back(&server);
         }
@@ -78,12 +138,11 @@ ChatServer StatusServerImpl::getChatServer()
     {
         // 计数器缺失（全新 Redis、实例重启、或该实例还没有人登录）视为 0：
         // logincount_<name> 带 30s TTL 且由实例自身续期，实例死掉后自动消失，不会残留脏计数
-        std::string count_str;
-        (void) RedisManager::GetInstance().get(LOGIN_COUNT_PREFIX + server->name, count_str);
+        const auto count_str = redisGet(LOGIN_COUNT_PREFIX + server->name);
         std::uint64_t count = 0;
-        if (!count_str.empty())
+        if (count_str && !count_str->empty())
         {
-            std::from_chars(count_str.data(), count_str.data() + count_str.size(), count);
+            std::from_chars(count_str->data(), count_str->data() + count_str->size(), count);
         }
         server->connection_count = count;
 
@@ -125,13 +184,13 @@ Status StatusServerImpl::Login(grpc::ServerContext* context, const message::Logi
     const std::uint64_t uid = request->uid();
     auto token = request->token();
 
-    std::string token_value{};
-    if (!RedisManager::GetInstance().get(USER_TOKEN_PERFIX + std::to_string(uid), token_value))
+    const auto token_value = redisGet(USER_TOKEN_PERFIX + std::to_string(uid));
+    if (!token_value)
     {
         response->set_error(ErrorCode::USER_UID_INVALID);
         return Status::OK;
     }
-    if (token_value != token)
+    if (*token_value != token)
     {
         response->set_error(ErrorCode::USER_TOKEN_INVALID);
         return Status::OK;
@@ -146,7 +205,7 @@ Status StatusServerImpl::Login(grpc::ServerContext* context, const message::Logi
 void StatusServerImpl::InsertToken(const std::uint64_t uid, const std::string& token)
 {
     // 写入失败不能静默：token 没进 Redis 时，ChatServer 侧校验会一律返回 USER_UID_INVALID
-    if (!RedisManager::GetInstance().set(USER_TOKEN_PERFIX + std::to_string(uid), token))
+    if (!redisSet(USER_TOKEN_PERFIX + std::to_string(uid), token))
     {
         spdlog::error("[status server] failed to insert token into redis, uid: {}", uid);
     }

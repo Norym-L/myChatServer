@@ -1,8 +1,8 @@
 #include "LogicSystem.h"
 #include "HttpConnection.h"
 #include "../verifyClient/VerifyGrpcClient.h"
-#include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <spdlog/spdlog.h>
 #include <json/value.h>
@@ -14,35 +14,30 @@
 #include <utils/UidCodec.h>
 #include "../statusClient/StatusGrpcClient.h"
 
+namespace net = boost::asio;
+
 LogicSystem::~LogicSystem() = default;
 
-bool LogicSystem::handleGet(std::string path, std::shared_ptr<HttpConnection> connection)
+net::awaitable<bool> LogicSystem::handleGet(std::string path, std::shared_ptr<HttpConnection> connection)
 {
-//     if (!m_get_handlers.contains(path))
-//     {
-//         return false;
-//     }
-//
-//     m_get_handlers[path](std::move(connection));
-//     return true;
     const auto it = m_get_handlers.find(path);
     if (it == m_get_handlers.end())
     {
-        return false;
+        co_return false;
     }
-    it->second(std::move(connection));
-    return true;
+    co_await it->second(std::move(connection));
+    co_return true;
 }
 
-bool LogicSystem::handlePost(std::string path, std::shared_ptr<HttpConnection> connection)
+net::awaitable<bool> LogicSystem::handlePost(std::string path, std::shared_ptr<HttpConnection> connection)
 {
     const auto it = m_post_handlers.find(path);
     if (it == m_post_handlers.end())
     {
-        return false;
+        co_return false;
     }
-    it->second(std::move(connection));
-    return true;
+    co_await it->second(std::move(connection));
+    co_return true;
 }
 
 void LogicSystem::regGet(std::string url, HttpHandler handler)
@@ -58,8 +53,8 @@ void LogicSystem::regPost(std::string url, HttpHandler handler)
 LogicSystem::LogicSystem()
 {
     regGet("/get_test",
-           [](const std::shared_ptr<HttpConnection> &connection)
-           {
+           [](const std::shared_ptr<HttpConnection>& connection) -> net::awaitable<void>
+               {
                beast::ostream(connection->m_response.body()) << "receive get_test req";
                int i = 0;
                for (auto &element: connection->m_getParams)
@@ -69,11 +64,12 @@ LogicSystem::LogicSystem()
                            << "param " << i << " key is " << element.first
                            << " value is " << element.second << "\n";
                }
-           });
+               co_return;
+               });
     /// 获取验证码
     regPost("/get_Verifycode",
-            [](std::shared_ptr<HttpConnection> connection)
-            {
+            [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
+                {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
                 spdlog::debug("[LogicSystem] receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
@@ -89,7 +85,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true; // 只是参数不对，不需要[断开连接]更严重false
+                    co_return; // 只是参数不对，不需要[断开连接]更严重false
                 }
 
                 auto email = src_root["email"].asString();
@@ -100,22 +96,27 @@ LogicSystem::LogicSystem()
 #ifdef GATE_DEBUG
                 // debug模式下，获取验证码额外返回验证码
                 std::string verify_code;
-                bool b_get_verify = RedisManager::GetInstance().get(CODE_PREFIX + src_root["email"].asString(), verify_code);
-                if (!b_get_verify)
+                try
                 {
-                    verify_code = "there is no verify in redis!";
+                    verify_code = (co_await RedisManager::GetInstance().get(CODE_PREFIX + email))
+                       .value_or("there is no verify in redis!");
+                }
+                catch (const std::exception& e)
+                {
+                    spdlog::error("[LogicSystem] /get_Verifycode get code from redis failed: {}", e.what());
+                    verify_code = "redis unavailable";
                 }
                 root["verify_code"] = verify_code;
 #endif
 
                 std::string json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
-                return true;
-            });
+                co_return;
+                });
     /// 用户注册
     regPost("/user_register",
-            [](std::shared_ptr<HttpConnection> connection)
-            {
+            [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
+                {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
                 spdlog::debug("[LogicSystem] /user_register receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
@@ -136,7 +137,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true; // 只是参数不对，不需要[断开连接]更严重false
+                    co_return; // 只是参数不对，不需要[断开连接]更严重false
                 }
 
                 auto email = src_root["email"].asString();
@@ -150,27 +151,38 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_ERROR);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true; // 只是参数不对，不需要[断开连接]更严重false
+                    co_return; // 只是参数不对，不需要[断开连接]更严重false
                 }
 
-                std::string verify_code;
-                bool b_get_verify = RedisManager::GetInstance().get(CODE_PREFIX + src_root["email"].asString(), verify_code);
+                std::optional<std::string> verify_code;
+                try
+                {
+                    verify_code = co_await RedisManager::GetInstance().get(CODE_PREFIX + email);
+                }
+                catch (const std::exception& e)
+                {
+                    // Redis 不可用与验证码过期是两类问题，需返回不同错误码
+                    spdlog::error("[LogicSystem] /user_register get verify code failed email: {}, error: {}", email, e.what());
+                    root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
+                    beast::ostream(connection->m_response.body()) << root.toStyledString();
+                    co_return;
+                }
 
-                if (!b_get_verify)
+                if (!verify_code)
                 {
                     spdlog::debug("[LogicSystem] /user_register get verify code failed email: {}", email);
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_EXPIRED);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true; // 只是参数不对，不需要[断开连接]更严重false
+                    co_return; // 只是参数不对，不需要[断开连接]更严重false
                 }
-                if (verify_code != src_root["verify_code"].asString())
+                if (*verify_code != src_root["verify_code"].asString())
                 {
-                    spdlog::debug("[LogicSystem] /user_register verify code error verify is: {}, email: {}", verify_code, email);
+                    spdlog::debug("[LogicSystem] /user_register verify code error verify is: {}, email: {}", *verify_code, email);
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_ERROR);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true; // 只是参数不对，不需要[断开连接]更严重false
+                    co_return; // 只是参数不对，不需要[断开连接]更严重false
                 }
 
                 //注册用户
@@ -181,7 +193,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::REGISTER_USER_FAILED);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
 
                 spdlog::info("[LogicSystem] /user_register user register success, uid: {}, email: {}", uid, email);
@@ -193,12 +205,12 @@ LogicSystem::LogicSystem()
                 // 响应不回显明文密码
                 auto json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
-                return true;
-            });
+                co_return;
+                });
     /// 用户重置密码
     regPost("/reset_password",
-            [](std::shared_ptr<HttpConnection> connection)
-            {
+            [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
+                {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
                 spdlog::debug("[LogicSystem] /reset_password receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
@@ -219,7 +231,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true;
+                    co_return;
                 }
 
                 // 客户端 uid 统一以字符串传递，这里解析为 std::uint64_t
@@ -231,29 +243,40 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::USER_UID_INVALID);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true;
+                    co_return;
                 }
                 auto email = src_root["email"].asString();
                 auto password = src_root["password"].asString();
 
-                std::string verify_code;
-                bool b_get_verify = RedisManager::GetInstance().get(CODE_PREFIX + src_root["email"].asString(), verify_code);
-                if (!b_get_verify)
+                std::optional<std::string> verify_code;
+                try
+                {
+                    verify_code = co_await RedisManager::GetInstance().get(CODE_PREFIX + email);
+                }
+                catch (const std::exception& e)
+                {
+                    spdlog::error("[LogicSystem] /reset_password get verify code failed email: {}, error: {}", email, e.what());
+                    root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
+                    beast::ostream(connection->m_response.body()) << root.toStyledString();
+                    co_return;
+                }
+
+                if (!verify_code)
                 {
                     spdlog::debug("[LogicSystem] /reset_password get verify code expired");
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_EXPIRED);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true;
+                    co_return;
                 }
 
-                if (verify_code != src_root["verify_code"].asString())
+                if (*verify_code != src_root["verify_code"].asString())
                 {
                     spdlog::debug("[LogicSystem] /reset_password verify code not match");
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_ERROR);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
 
                 const auto accountValid = MySqlManager::GetInstance().checkIsAccountMatchEmail(account, email);
@@ -264,7 +287,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
                 if (accountValid == MatchResult::NotMatched)
                 {
@@ -272,7 +295,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::EMAIL_NOT_MATCH);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
 
                 //更新密码为最新密码
@@ -283,7 +306,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_UP_FAILED);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
 
                 spdlog::info("[LogicSystem] /reset_password succeed to update password uid: {}", account);
@@ -293,12 +316,12 @@ LogicSystem::LogicSystem()
                 root["verify_code"] = src_root["verify_code"].asString();
                 std::string jsonstr = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << jsonstr;
-                return true;
-            });
+                co_return;
+                });
     /// 用户登录
     regPost("/user_login",
-            [](std::shared_ptr<HttpConnection> connection)
-            {
+            [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
+                {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
                 spdlog::debug("[LogicSystem] /user_login receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
@@ -317,7 +340,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true;
+                    co_return;
                 }
 
                 // 客户端 uid 统一以字符串传递，这里解析为 std::uint64_t
@@ -330,7 +353,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::USER_UID_INVALID);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
-                    return true;
+                    co_return;
                 }
                 auto password = src_root["password"].asString();
 
@@ -342,7 +365,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
                 if (passwordMatch == MatchResult::NotMatched)
                 {
@@ -350,7 +373,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_ERROR);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
 
                 //查询StatusServer找到合适的连接
@@ -361,7 +384,7 @@ LogicSystem::LogicSystem()
                     root["error"] = static_cast<int>(ErrorCode::RPC_FAILED);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
-                    return true;
+                    co_return;
                 }
 
                 spdlog::info("[LogicSystem] /user_login succeed login user uid: {}", account);
@@ -374,6 +397,6 @@ LogicSystem::LogicSystem()
                 root["port"] = reply.port();
                 auto json_str = root.toStyledString();
                 beast::ostream(connection->m_response.body()) << json_str;
-                return true;
-            });
+                co_return;
+                });
 }

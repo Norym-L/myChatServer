@@ -4,11 +4,16 @@
 #include <boost/redis/connection.hpp>
 #include <boost/redis/request.hpp>
 #include <boost/redis/response.hpp>
-#include <boost/asio/awaitable.hpp>
 #include <boost/asio.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/executor_work_guard.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/use_future.hpp>
 
 #include <string>
 #include <optional>
+#include <thread>
 
 #include <Singleton.h>
 
@@ -99,17 +104,121 @@ public:
     net::awaitable<std::vector<std::int64_t> > streamAckDel(std::string stream_name, std::string group_name, std::vector<std::string> ids, std::string policy = "ACKED");
     net::awaitable<PendingSummary> streamPending(std::string stream_name, std::string group_name) const;
 
+    /// 使用调用方提供的 io_context（如 ChatServer 的逻辑线程）：业务协程与 Redis 命令跑在同一条线程上
     void init(net::io_context& io_context);
-    
+    /// 自建 io_context + 单线程（供没有逻辑线程的 GateServer / StatusServer 使用）
+    void init();
+
+    /// 同步等待一个 Redis 协程的结果：仅用于没有协程上下文的同步调用方（如 gRPC 同步处理器），
+    /// 会阻塞当前线程直到命令完成，因此不要在 Redis 线程或逻辑线程上调用
+    template<class T>
+    T wait(net::awaitable<T> op)
+    {
+        if (m_ioContext == nullptr || !m_thread.joinable())
+        {
+            throw std::runtime_error("[redis] wait() requires RedisManager::init() with a dedicated thread");
+        }
+        if (m_ioContext->get_executor().running_in_this_thread())
+        {
+            throw std::runtime_error("[redis] wait() must not be called on the redis thread");
+        }
+        return net::co_spawn(*m_ioContext, std::move(op), net::use_future).get();
+    }
+
 private:
     RedisManager();
+    ~RedisManager();
 
     explicit RedisManager(net::io_context& io_context);
     std::shared_ptr<redis::connection> m_connection;
 
+    net::io_context m_ownIoContext; // 自建线程时使用的 io_context
+    net::executor_work_guard<net::io_context::executor_type> m_workGuard{net::make_work_guard(m_ownIoContext)};
+    net::io_context* m_ioContext = nullptr; // 实际承载连接的 io_context
+    std::thread m_thread;                   // 自建线程（仅 init() 无参版本使用）
+
+    /// 当前线程是否为承载 Redis 连接的那条线程。
+    /// 连接不是线程安全的，所有 async_exec 都必须在它的 io_context 线程上发起
+    [[nodiscard]] bool onRedisThread() const
+    {
+        return m_ioContext == nullptr || m_ioContext->get_executor().running_in_this_thread();
+    }
+
+    [[nodiscard]] bool initialized() const noexcept { return m_connection != nullptr; }
+
     template<class ReturnType, class... Args>
     net::awaitable<ReturnType> redisCall(Args&&... args)
     {
+        if (!onRedisThread())
+        {
+            // 从其他线程调用：切到 Redis 线程执行，执行完再切回来
+            co_return co_await net::co_spawn(*m_ioContext,
+                                             redisCallOnRedisThread<ReturnType>(std::forward<Args>(args)...),
+                                             net::use_awaitable);
+        }
+        co_return co_await redisCallOnRedisThread<ReturnType>(std::forward<Args>(args)...);
+    }
+
+    template<class ReturnType, class Range>
+    net::awaitable<ReturnType> redisCallRange(std::string cmd, const Range& args)
+    {
+        if (!onRedisThread())
+        {
+            co_return co_await net::co_spawn(*m_ioContext,
+                                             redisCallRangeOnRedisThread<ReturnType>(std::move(cmd), args),
+                                             net::use_awaitable);
+        }
+        co_return co_await redisCallRangeOnRedisThread<ReturnType>(std::move(cmd), args);
+    }
+
+    template<class ReturnType, class Range>
+    net::awaitable<ReturnType> redisCallRange(std::string cmd, std::string key, const Range& args)
+    {
+        if (!onRedisThread())
+        {
+            co_return co_await net::co_spawn(
+                *m_ioContext,
+                redisCallRangeOnRedisThread<ReturnType>(std::move(cmd), std::move(key), args),
+                net::use_awaitable);
+        }
+        co_return co_await redisCallRangeOnRedisThread<ReturnType>(std::move(cmd), std::move(key), args);
+    }
+
+    template<class... Args>
+    net::awaitable<void> redisCallWithoutReturn(Args&&... args)
+    {
+        if (!onRedisThread())
+        {
+            co_await net::co_spawn(*m_ioContext,
+                                   redisCallWithoutReturnOnRedisThread(std::forward<Args>(args)...),
+                                   net::use_awaitable);
+            co_return;
+        }
+        co_await redisCallWithoutReturnOnRedisThread(std::forward<Args>(args)...);
+    }
+
+    template<class Range>
+    net::awaitable<void> redisCallRangeWithoutReturn(std::string cmd, const Range& args)
+    {
+        if (!onRedisThread())
+        {
+            co_await net::co_spawn(*m_ioContext,
+                                   redisCallRangeWithoutReturnOnRedisThread(std::move(cmd), args),
+                                   net::use_awaitable);
+            co_return;
+        }
+        co_await redisCallRangeWithoutReturnOnRedisThread(std::move(cmd), args);
+    }
+
+    // ---- 以下 *OnRedisThread 版本只能在 Redis 连接所在的线程上执行 ----
+
+    template<class ReturnType, class... Args>
+    net::awaitable<ReturnType> redisCallOnRedisThread(Args&&... args)
+    {
+        if (!initialized())
+        {
+            throw std::runtime_error("[redis] RedisManager is not initialized");
+        }
         redis::request req;
         req.push(std::forward<Args>(args)...);
         redis::response<ReturnType> resp;
@@ -128,8 +237,12 @@ private:
     }
 
     template<class ReturnType, class Range>
-    net::awaitable<ReturnType> redisCallRange(std::string cmd, const Range& args)
+    net::awaitable<ReturnType> redisCallRangeOnRedisThread(std::string cmd, const Range& args)
     {
+        if (!initialized())
+        {
+            throw std::runtime_error("[redis] RedisManager is not initialized");
+        }
         redis::request req;
         req.push_range(cmd, std::begin(args), std::end(args));
 
@@ -149,8 +262,12 @@ private:
     }
 
     template<class ReturnType, class Range>
-    net::awaitable<ReturnType> redisCallRange(std::string cmd, std::string key, const Range& args)
+    net::awaitable<ReturnType> redisCallRangeOnRedisThread(std::string cmd, std::string key, const Range& args)
     {
+        if (!initialized())
+        {
+            throw std::runtime_error("[redis] RedisManager is not initialized");
+        }
         redis::request req;
         req.push_range(cmd, key, std::begin(args), std::end(args));
 
@@ -171,8 +288,12 @@ private:
     }
 
     template<class... Args>
-    net::awaitable<void> redisCallWithoutReturn(Args&&... args)
+    net::awaitable<void> redisCallWithoutReturnOnRedisThread(Args&&... args)
     {
+        if (!initialized())
+        {
+            throw std::runtime_error("[redis] RedisManager is not initialized");
+        }
         redis::request req;
         req.push(std::forward<Args>(args)...);
         try
@@ -186,8 +307,12 @@ private:
     }
 
     template<class Range>
-    net::awaitable<void> redisCallRangeWithoutReturn(std::string cmd, const Range& args)
+    net::awaitable<void> redisCallRangeWithoutReturnOnRedisThread(std::string cmd, const Range& args)
     {
+        if (!initialized())
+        {
+            throw std::runtime_error("[redis] RedisManager is not initialized");
+        }
         redis::request req;
         req.push_range(cmd, std::begin(args), std::end(args));
         try

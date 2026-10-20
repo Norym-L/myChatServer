@@ -1,0 +1,8 @@
+聊天消息好友验证
+    \发消息时先查询是否存在redis键
+    \redis中验证是否为好友 set
+    \用户添加删除好友同步redis状态
+    \长时间不上线redis自动过期好友
+    客户端查询好友列表走redis
+
+使用boost重构redis manager
