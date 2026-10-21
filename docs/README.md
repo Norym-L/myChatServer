@@ -43,8 +43,8 @@ GateServer 是一个分布式聊天系统，由三个可独立部署的服务与
 | `code_<email>`           | string       | 由 VerifyServer 决定 | VerifyServer | 邮箱验证码                                                                                                    |
 | `utoken_<uid>`           | string       | 30s                  | StatusServer | 登录 token；ChatServer 登录帧校验用                                                                           |
 | `uip_<uid>`              | string       | 30s                  | ChatServer   | 用户在线所在实例名；客户端心跳（`1016`）续期，过期即视为离线                                                  |
-| `ubaseinfo_<uid>`        | string(JSON) | 500s                 | ChatServer   | 用户基础信息缓存                                                                                              |
-| `ubaseinfo_name_<name>`  | string(JSON) | 500s                 | ChatServer   | 用户名 → uid 列表缓存                                                                                         |
+| `ubaseinfo_<uid>`        | string(JSON) | 24h（读续期）        | ChatServer   | 用户基础信息缓存；登录 / 搜索回源数据库与编辑资料回写均写 24h，每次查询（`getUserInfo`）再续期 24h            |
+| `ubaseinfo_name_<name>`  | string(JSON) | 7d                   | ChatServer   | 用户名 → uid 列表缓存；按用户名搜索时写入                                                                     |
 | `userfriendset_<uid>`    | set          | 7d                   | ChatServer   | 好友 uid 集合；登录时若 key 不存在则从 MySQL 全量载入，发送消息前用 `SISMEMBER` 校验好友；不活跃 7 天自动过期 |
 | `serverlist`             | hash         | 无                   | ChatServer   | 字段为实例名，值为 `host:port`（服务列表）                                                                    |
 | `serverheartbeat_<name>` | string       | 30s                  | ChatServer   | 实例存活标记                                                                                                  |

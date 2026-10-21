@@ -63,6 +63,8 @@ B                    B 的 ChatServer                 A 的 ChatServer          
 | `1021`     | `MESSAGE_SYNC_FRIEND_LIST_RSP`     | 服务端 → 客户端         | 好友列表回包         |
 | `1027`     | `MESSAGE_DEL_FRIEDN_REQ`           | 客户端 → 服务端         | 删除好友             |
 | `1028`     | `MESSAGE_DEL_FRIEDN_RSP`           | 服务端 → 客户端         | 删除结果             |
+| `1029`     | `MESSAGE_SET_FRIEND_REMARK_REQ`    | 客户端 → 服务端         | 设置好友备注         |
+| `1030`     | `MESSAGE_SET_FRIEND_REMARK_RSP`    | 服务端 → 客户端         | 备注结果             |
 
 > 帧格式见 [`api-tcp.md`](api-tcp.md)：`[message_id:2][body_len:2][body]`。`message_id` 取 `src/public/const.h` 中 `enum MessageType` 的值。
 
@@ -94,7 +96,7 @@ B                    B 的 ChatServer                 A 的 ChatServer          
 { "error": 0, "add_friend_request_id": "123" }
 ```
 
-> `add_friend_request_id` 为 **字符串**（其余编号字段的类型约定见 [§12](#12-字段类型速查)）。
+> `add_friend_request_id` 为 **字符串**（其余编号字段的类型约定见 [§13](#13-字段类型速查)）。
 
 **失败**（仅含 `error`）
 
@@ -311,15 +313,58 @@ A 在线时由服务端主动推送（无请求、无需回包）：
 - **不通知被删除方**，被删除方的客户端需要自行刷新好友列表才能感知。
 - 数据库已删除但 Redis 同步失败时返回 `1013`，此时数据库变更 **不会回滚**，好友缓存会在过期后重建。
 
-## 10. 查询用户在线状态（1018 / 1019）
+## 10. 设置好友备注（1029 / 1030）
 
-### 10.1 请求 MESSAGE_CHECK_IS_USER_ONLINE_REQ（1018）
+### 10.1 请求 MESSAGE_SET_FRIEND_REMARK_REQ（1029）
+
+```json
+{
+  "id": "c-0001",
+  "friend_uid": "10002",
+  "remark": "老同学"
+}
+```
+
+| 字段         | 类型   | 必填 | 说明                                                         |
+|--------------|--------|------|--------------------------------------------------------------|
+| `id`         | 任意   | 否   | 客户端消息标识，服务端**原样回显**（不做解析，类型保持不变） |
+| `friend_uid` | string | 是   | 好友 uid，必须是纯数字字符串，否则返回 `1020`                |
+| `remark`     | string | 否   | 新备注；**缺失或为 `null` 时按空串处理，即清空备注**         |
+
+- 设置方取当前会话已登录的 uid（`session->getUserId()`），请求体不需要传自己的 uid。
+- 只修改 **单向备注**（`user_friend.remark` 中「我给好友设置的备注」），不影响对方给本人设置的备注。
+
+### 10.2 响应 MESSAGE_SET_FRIEND_REMARK_RSP（1030）
+
+```json
+{ "error": 0, "id": "c-0001" }
+```
+
+| 字段    | 类型 | 说明                                                             |
+|---------|------|------------------------------------------------------------------|
+| `error` | int  | 见下表                                                           |
+| `id`    | 任意 | **原样回显**请求中的 `id`；成功与失败都会带，请求缺失时为 `null` |
+
+| error  | 含义                                             | 存储过程 `update_friend_remark` 返回 |
+|--------|--------------------------------------------------|--------------------------------------|
+| `0`    | 设置成功                                         | `0`                                  |
+| `1011` | 会话未登录（未绑定 uid）                         | ——                                   |
+| `1020` | `friend_uid` 解析失败                            | ——                                   |
+| `1022` | `NOT_FRIEND`：对方不是好友，或试图给自己设置备注 | `-1` / `-2`                          |
+| `1013` | 数据库不可用                                     | 其它非 `0` 值（如 `-10`）            |
+
+- 纯 MySQL 写操作， **不涉及 Redis**，也不通知对方。
+- 成功后客户端需重新拉取好友列表（`1020`）才能看到新备注。
+
+## 11. 查询用户在线状态（1018 / 1019）
+
+### 11.1 请求 MESSAGE_CHECK_IS_USER_ONLINE_REQ（1018）
 
 ```json
 { "uid": "10002" }
 ```
 
-### 10.2 响应 MESSAGE_CHECK_IS_USER_ONLINE_RSP（1019）
+### 11.2 响应 MESSAGE_CHECK_IS_USER_ONLINE_RSP（1019）
 
 ```json
 { "error": 0, "online": "online" }
@@ -329,7 +374,7 @@ A 在线时由服务端主动推送（无请求、无需回包）：
 - 判定依据：Redis `uip_<uid>` 是否存在（即该用户 30s 内有过心跳）。
 - uid 解析失败时返回 `1020`（`REQUEST_VALUE_INVALID`）。
 
-## 11. gRPC 接口（ChatService）
+## 12. gRPC 接口（ChatService）
 
 ```protobuf
 service ChatService
@@ -358,42 +403,45 @@ message ReplyFriendReq
 message ReplyFriendRsp { int32 error = 1; }
 ```
 
-### 11.1 NotifyAddFriend
+### 12.1 NotifyAddFriend
 
 - 调用方：申请所在 ChatServer。
 - 服务方行为：按 `toUid` 查本实例会话；存在则推送 TCP `1009`，返回 `0`；不存在返回 `1019`（USER_OUTLINE）。
 
-### 11.2 ReplyAddFriend
+### 12.2 ReplyAddFriend
 
 - 调用方：接收人所在 ChatServer。
 - 服务方行为：按 `senderUid` 查本实例会话；存在则推送 TCP `1012`，返回 `0`；不存在返回 `1019`。
 - 注意：`senderUid` 是**原始申请人**，不是发起本次 RPC 的用户。
 
-### 11.3 调用约定
+### 12.3 调用约定
 
 - 超时 `deadline = 3s`；连接池不可用或 RPC 失败 → 返回 `1002`（RPC_FAILED）。
 - 服务端返回 `1019` 表示「对端用户不在线」，但调用方只记录告警，**不影响已经返回给客户端的 `1006` / `1011` 成功结果**——离线用户不会收到推送，但数据库记录已生效。
 
-## 12. 字段类型速查
+## 13. 字段类型速查
 
 各字段的 JSON 类型如下，客户端务必按类型解析：
 
-| 字段                          | 出现位置                          | JSON 类型                   |
-|-------------------------------|-----------------------------------|-----------------------------|
-| `add_friend_request_id`       | `1006` / `1011` 响应、`1010` 请求 | **string**                  |
-| `add_friend_request_id`       | `1009` 推送、`1012` 推送          | **string**                  |
-| `id`                          | `1008` 列表项                     | **string**                  |
-| `count`                       | `1008` 响应                       | **string**                  |
-| `count`                       | `1021` 响应                       | **string**                  |
-| `nick`                        | `1008` / `1021` 列表项            | **string**                  |
-| `state`                       | `1010` 请求                       | **string**（`"1"` / `"2"`） |
-| `state`                       | `1012` 推送、`1008` 列表项        | **number**                  |
-| `uid` / `to_uid` / `from_uid` | 所有请求与响应                    | **string**                  |
-| `sex`                         | `1008` / `1021` 列表项            | **number**                  |
+| 字段                          | 出现位置                          | JSON 类型                    |
+|-------------------------------|-----------------------------------|------------------------------|
+| `add_friend_request_id`       | `1006` / `1011` 响应、`1010` 请求 | **string**                   |
+| `add_friend_request_id`       | `1009` 推送、`1012` 推送          | **string**                   |
+| `id`                          | `1008` 列表项                     | **string**                   |
+| `count`                       | `1008` 响应                       | **string**                   |
+| `count`                       | `1021` 响应                       | **string**                   |
+| `nick`                        | `1008` / `1021` 列表项            | **string**                   |
+| `state`                       | `1010` 请求                       | **string**（`"1"` / `"2"`）  |
+| `state`                       | `1012` 推送、`1008` 列表项        | **number**                   |
+| `uid` / `to_uid` / `from_uid` | 所有请求与响应                    | **string**                   |
+| `friend_uid`                  | `1029` 请求                       | **string**                   |
+| `remark`                      | `1029` 请求                       | **string**（缺失即清空备注） |
+| `id`                          | `1029` 请求 / `1030` 回包         | **任意，原样回显**           |
+| `sex`                         | `1008` / `1021` 列表项            | **number**                   |
 
-## 13. 状态与错误码
+## 14. 状态与错误码
 
-### 13.1 FriendApplyStatus
+### 14.1 FriendApplyStatus
 
 | 值 | 枚举 | 含义 |
 |----|------|------|
@@ -401,7 +449,7 @@ message ReplyFriendRsp { int32 error = 1; }
 | `1` | `ACCEPTED` | 已接受 |
 | `2` | `REFUSEED` | 已拒绝 |
 
-### 13.2 新增错误码
+### 14.2 新增错误码
 
 | 值     | 枚举                    | 含义                                         |
 |--------|-------------------------|----------------------------------------------|
@@ -411,10 +459,11 @@ message ReplyFriendRsp { int32 error = 1; }
 
 完整错误码见 [`error-codes.md`](error-codes.md)。
 
-## 14. 当前实现注意事项（⚠️）
+## 15. 当前实现注意事项（⚠️）
 
 以下与代码当前行为一致，供联调时参考：
 
-1. **编号字段类型不统一**：见 [§12](#12-字段类型速查)。
+1. **编号字段类型不统一**：见 [§13](#13-字段类型速查)。
 2. **`getNotifyUserIdInAuthFriendReq` 已实现但未被调用**：`authFriendRequestHandler` 直接使用 `handleFriendRequest` 回填的 `sender_uid`。
 3. **删除好友不通知被删除方**：`1028` 只回给发起删除的客户端，对端需主动刷新好友列表（`1020`）。
+4. **备注为单向数据**：设置后不通知对方，也不刷新任何缓存，需重新拉取好友列表（`1020`）。

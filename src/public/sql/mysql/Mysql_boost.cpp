@@ -354,3 +354,8 @@ net::awaitable<MysqlResult<std::vector<UidAndRemarkInUserFriend> > > Mysql_boost
 
     co_return root;
 }
+
+net::awaitable<int> Mysql_boost::changeUserInfo(uint64_t uid, std::optional<std::string> name, std::optional<std::string> desc, std::optional<std::string> icon, std::optional<Sex> sex)
+{
+    co_return co_await callMysqlSpWithoutResult("CALL update_user_info(?, ?, ?, ?, ?, @error)", uid, name, desc, icon, sex);
+}

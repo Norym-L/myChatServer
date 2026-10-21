@@ -147,7 +147,8 @@ print(message_id, json.loads(body.decode()))
 ## 5. 已知限制（后续规划）
 
 - 已实现 `1016` 心跳用于**在线状态续期**，但尚未基于心跳做**空闲超时回收**（长时间无心跳不会主动断开连接）；
-- 已实现登录（含好友集合载入）、用户搜索、好友申请/同步/好友列表/删除好友、聊天消息发送（含好友校验）/通知/拉取/确认（含 PEL
+- 已实现登录（含好友集合载入）、用户搜索、好友申请/同步/好友列表/删除好友/设置好友备注、编辑用户资料、聊天消息发送（含好友校验）/通知/拉取/确认（含
+  PEL
   重投）、
   心跳； **历史记录与群聊尚未实现**；
 - 明文传输（未启用 TLS），且无消息级鉴权（登录成功后不再校验后续帧）。
@@ -172,9 +173,10 @@ print(message_id, json.loads(body.decode()))
 > `error = 1022 NOT_FRIEND`），
 > 消息不会写入离线消息流。集合的载入 / 续期 / 过期规则见 [`api-chat.md`](api-chat.md#11-好友关系校验redis-set)。
 
-## 7. 好友相关接口
+## 7. 好友与用户资料相关接口
 
-好友申请 / 验证 / 在线查询等消息的完整字段、流程与错误码见独立文档 **[`api-friend.md`](api-friend.md)**。编号速查：
+好友申请 / 验证 / 在线查询等消息的完整字段、流程与错误码见独立文档 **[`api-friend.md`](api-friend.md)**；编辑用户资料见 [
+`api-changes.md`](api-changes.md) §4。编号速查：
 
 | message_id | 名称                               | 方向                    |
 |------------|------------------------------------|-------------------------|
@@ -192,3 +194,7 @@ print(message_id, json.loads(body.decode()))
 | `1021`     | `MESSAGE_SYNC_FRIEND_LIST_RSP`     | 服务端 → 客户端         |
 | `1027`     | `MESSAGE_DEL_FRIEDN_REQ`           | 客户端 → 服务端         |
 | `1028`     | `MESSAGE_DEL_FRIEDN_RSP`           | 服务端 → 客户端         |
+| `1029`     | `MESSAGE_SET_FRIEND_REMARK_REQ`    | 客户端 → 服务端         |
+| `1030`     | `MESSAGE_SET_FRIEND_REMARK_RSP`    | 服务端 → 客户端         |
+| `1031`     | `MESSAGE_CHANGE_USER_INFO_REQ`     | 客户端 → 服务端         |
+| `1032`     | `MESSAGE_CHANGE_USER_INFO_RSP`     | 服务端 → 客户端         |

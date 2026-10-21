@@ -84,30 +84,20 @@ net::awaitable<void> LogicSystem::RemoveOnlineKey(const std::uint64_t uid)
     }
 }
 
-net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::string& base_key, const std::uint64_t uid)
+net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::uint64_t uid)
 {
     // 先查redis
     try
     {
-        if (const auto info_str = co_await RedisManager::GetInstance().get(base_key); info_str.has_value())
+        if (const auto info_str = co_await RedisManager::GetInstance().getUserInfo(uid); info_str.has_value())
         {
-            Json::Reader reader;
-            Json::Value root;
-            reader.parse(*info_str, root);
-            co_return std::make_shared<UserInfo>(
-                root["token"].asString(),
-                root["name"].asString(),
-                root["email"].asString(),
-                root["desc"].asString(),
-                root["icon"].asString(),
-                root["uid"].asUInt64(),
-                static_cast<Sex>(root["sex"].asUInt()));
+            co_return std::make_shared<UserInfo>(info_str.value());
         }
     }
     catch (const std::exception& e)
     {
         // Redis 不可用时不能挡住登录：继续回落数据库
-        spdlog::warn("[logic] get base info from redis failed, key: {}, error: {}", base_key, e.what());
+        spdlog::warn("[logic] get base info from redis failed, error: {}", e.what());
     }
 
     // 数据库查询
@@ -118,17 +108,9 @@ net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::s
     }
     const auto& info = value.value();
 
-    Json::Value root;
-    root["token"] = info.token;
-    root["name"] = info.name;
-    root["email"] = info.email;
-    root["desc"] = info.desc;
-    root["icon"] = info.icon;
-    root["uid"] = info.uid;
     try
     {
-        co_await RedisManager::GetInstance().set(base_key, root.toStyledString());
-        co_await RedisManager::GetInstance().expire(base_key, 500);
+        co_await RedisManager::GetInstance().setUserBaseInfo(uid, info);
     }
     catch (const std::exception& e)
     {
@@ -265,6 +247,20 @@ void LogicSystem::registerCallBacks()
             {
                 co_await delFriendHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_SET_FRIEND_REMARK_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data) -> net::awaitable<void>
+            {
+                co_await setFriendRemarkhandler(session, message_data);
+            };
+
+    m_callbackFunctions[MessageType::MESSAGE_CHANGE_USER_INFO_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data) -> net::awaitable<void>
+            {
+                co_await changeUserInfoHandler(session, message_data);
+            };
 }
 
 net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -349,12 +345,11 @@ net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& 
         }
     }
 
-    std::string base_key = USER_BASE_INFO + uid_str;
-    auto user_info = co_await GetBaseInfo(base_key, uid);
+    auto user_info = co_await GetBaseInfo(uid);
     if (!user_info)
     {
         // Redis 缓存未命中且 MySQL 也查不到该 uid（MySqlDao 查询异常时同样返回空）
-        spdlog::warn("[logic system] base info not found, key: {}, uid: {}", base_key, uid);
+        spdlog::warn("[logic system] base info not found, uid: {}", uid);
         return_value["error"] = ErrorCode::USER_UID_INVALID;
         co_return;
     }
@@ -851,6 +846,70 @@ net::awaitable<void> LogicSystem::delFriendHandler(const std::shared_ptr<CSessio
     return_value["error"] = ErrorCode::SUCCESS; // 不需要通知被删除的好友
 }
 
+net::awaitable<void> LogicSystem::setFriendRemarkhandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_SET_FRIEND_REMARK_RSP)
+
+    return_value["id"] = root["id"]; // 客户端发送的信息编号
+    std::uint64_t friend_uid{};
+    if (!uid_codec::ParseUid(root["friend_uid"].asString(), friend_uid))
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        co_return;
+    }
+
+    const auto error_code = co_await MySqlManager::GetInstance().co_run().updateFriendRemark(session->getUserId(), friend_uid, root["remark"].asString());
+    if (error_code != 0)
+    {
+        if (error_code == -1 || error_code == -2)
+        {
+            return_value["error"] = ErrorCode::NOT_FRIEND;
+        }
+        else
+        {
+            return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        }
+        co_return;
+    }
+    return_value["error"] = ErrorCode::SUCCESS;
+}
+
+net::awaitable<void> LogicSystem::changeUserInfoHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_CHANGE_USER_INFO_RSP)
+
+    return_value["id"] = root["id"]; // 客户端发送的信息编号
+    std::optional<std::string> name = std::nullopt;
+    std::optional<std::string> desc = std::nullopt;
+    std::optional<std::string> icon = std::nullopt;
+    std::optional<Sex> sex = std::nullopt;
+
+    if (!root["name"].isNull()) name = root["name"].asString();
+    if (!root["desc"].isNull()) desc = root["desc"].asString();
+    if (!root["icon"].isNull()) icon = root["icon"].asString();
+    if (!root["sex"].isNull()) sex = static_cast<Sex>(root["sex"].asInt());
+
+    if (!co_await RedisManager::GetInstance().changeUserInfo(session->getUserId(), name, desc, icon, sex))
+    {
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        co_return;
+    };
+    const auto error_code = co_await MySqlManager::GetInstance().co_run().changeUserInfo(session->getUserId(), name, desc, icon, sex);
+    if (error_code != 0)
+    {
+        if (error_code == -1)
+        {
+            return_value["error"] = ErrorCode::USER_UID_INVALID;
+        }
+        else
+        {
+            return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        }
+        co_return;
+    }
+    return_value["error"] = ErrorCode::SUCCESS;
+}
+
 bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid, const std::string& user_ip)
 {
     AddFriendReq req;
@@ -896,30 +955,10 @@ bool LogicSystem::GrpcNotifyReceiveMessageToOther(const std::uint64_t to_uid, co
 net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::SearchUserByUid(const uint64_t uid)
 {
     // redis 查询
-    const auto base_key = USER_BASE_INFO + std::to_string(uid);
-    try
+    if (const auto user_info = co_await RedisManager::GetInstance().getUserInfo(uid); user_info.has_value())
     {
-        if (const auto info_str = co_await RedisManager::GetInstance().get(base_key); info_str.has_value())
-        {
-            Json::Reader reader;
-            Json::Value root;
-            reader.parse(*info_str, root);
-            co_return std::make_shared<UserInfo>(
-                std::string(),
-                root["name"].asString(),
-                root["email"].asString(),
-                root["desc"].asString(),
-                root["icon"].asString(),
-                root["uid"].asUInt64(),
-                static_cast<Sex>(root["sex"].asUInt())
-                );
-        }
+        co_return std::make_shared<UserInfo>(user_info.value());
     }
-    catch (const std::exception& e)
-    {
-        spdlog::warn("[logic system] get user base info from redis failed, key: {}, error: {}", base_key, e.what());
-    }
-
     // 查数据库
     const auto [error, user_info] = co_await MySqlManager::GetInstance().co_run().getUser(uid);
 

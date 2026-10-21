@@ -2,6 +2,147 @@
 
 > 按批次记录，最新批次在前。基线与日期以提交记录为准。
 
+# 批次 2026-10-21（基线 `5524366`）：好友备注与用户资料编辑
+
+## 1. 变更汇总
+
+| 类别       | 内容                                                                                                           |
+|------------|----------------------------------------------------------------------------------------------------------------|
+| **新增**   | TCP `1029` / `1030` 设置好友备注；TCP `1031` / `1032` 编辑用户资料                                             |
+| **变更**   | 用户资料缓存读取抽到 `RedisManager::getUserInfo`（`SearchUserByUid` 改为调用它，Redis 解析异常改为回落 MySQL） |
+| **变更**   | 每次通过 `getUserInfo` 读取用户资料时，把 `ubaseinfo_<uid>` 的 TTL 续期为 **24 小时**（读即续期）              |
+| **变更**   | 编辑资料成功后由 `RedisManager::setUserBaseInfo` 回写 `ubaseinfo_<uid>`，TTL **24 小时**，并保留 `token` 字段  |
+| **变更**   | 用户名索引 `ubaseinfo_name_<name>` 的默认 TTL 由 `1800s` 调整为 **7 天**（`7 * 24 * 60 * 60`）                 |
+| **未实现** | 备注 / 资料变更的推送通知；改名后旧名字索引的清理；头像等字段的内容校验                                        |
+
+字段与流程详见本文 §3、§4，好友备注另见 [`api-friend.md`](api-friend.md) §10。
+
+## 2. TCP 消息
+
+| message_id | 名称                            | 方向            | 本批变化       |
+|------------|---------------------------------|-----------------|----------------|
+| `1029`     | `MESSAGE_SET_FRIEND_REMARK_REQ` | 客户端 → 服务端 | **新增枚举值** |
+| `1030`     | `MESSAGE_SET_FRIEND_REMARK_RSP` | 服务端 → 客户端 | **新增枚举值** |
+| `1031`     | `MESSAGE_CHANGE_USER_INFO_REQ`  | 客户端 → 服务端 | **新增枚举值** |
+| `1032`     | `MESSAGE_CHANGE_USER_INFO_RSP`  | 服务端 → 客户端 | **新增枚举值** |
+
+## 3. 设置好友备注（1029 / 1030）
+
+### 3.1 请求
+
+```json
+{
+  "id": "c-0001",
+  "friend_uid": "10002",
+  "remark": "老同学"
+}
+```
+
+| 字段         | 类型   | 必填 | 说明                                                         |
+|--------------|--------|------|--------------------------------------------------------------|
+| `id`         | 任意   | 否   | 客户端消息标识，服务端**原样回显**（不做解析，类型保持不变） |
+| `friend_uid` | string | 是   | 好友 uid，必须是纯数字字符串，否则返回 `1020`                |
+| `remark`     | string | 否   | 新备注；**缺失或为 `null` 时按空串处理，即清空备注**         |
+
+- 设置方取当前会话已登录 uid（`session->getUserId()`），请求体不需要传自己的 uid。
+- 只修改 **当前用户视角**的单向备注（`user_friend.remark`），不会影响对方给本人设置的备注。
+
+### 3.2 响应
+
+```json
+{ "error": 0, "id": "c-0001" }
+```
+
+| error  | 含义                                             | 存储过程 `update_friend_remark` 返回 |
+|--------|--------------------------------------------------|--------------------------------------|
+| `0`    | 设置成功                                         | `0`                                  |
+| `1011` | 会话未登录（未绑定 uid）                         | ——                                   |
+| `1020` | `friend_uid` 解析失败                            | ——                                   |
+| `1022` | `NOT_FRIEND`：对方不是好友，或试图给自己设置备注 | `-1` / `-2`                          |
+| `1013` | 数据库不可用                                     | 其它非 0 值（如 `-10`）              |
+
+- 纯 MySQL 写操作， **不涉及 Redis**；成功后客户端需重新拉取好友列表（`1020`）才能看到新备注。
+- 不通知被设置备注的好友（备注是单向的，对方无感知）。
+
+## 4. 编辑用户资料（1031 / 1032）
+
+### 4.1 请求
+
+```json
+{
+  "id": "c-0002",
+  "name": "新昵称",
+  "desc": "新签名",
+  "icon": "http://example.com/icon.png",
+  "sex": 1
+}
+```
+
+| 字段   | 类型   | 必填 | 说明                                                                                        |
+|--------|--------|------|---------------------------------------------------------------------------------------------|
+| `id`   | 任意   | 否   | 客户端消息标识，服务端**原样回显**                                                          |
+| `name` | string | 否   | 昵称                                                                                        |
+| `desc` | string | 否   | 个性签名                                                                                    |
+| `icon` | string | 否   | 头像地址                                                                                    |
+| `sex`  | int    | 否   | 性别，见 [`UserInfo.h`](../src/public/data/UserInfo.h) 的 `Sex`：`0` 男 / `1` 女 / `2` 未知 |
+
+- **所有字段均可选**：字段缺失或显式传 `null` 表示不修改该项（`Json::Value::isNull()` 判定）。
+- 全部字段缺失时仍会调用 Redis 与 MySQL（等价于一次空更新），返回值取决于存储过程，通常为 `0`。
+- 修改对象固定为当前会话已登录 uid，请求体不传 uid。
+- 字段长度、内容与 `sex` 取值范围均 **未校验**，由存储过程与数据库约束决定。
+
+### 4.2 响应
+
+```json
+{ "error": 0, "id": "c-0002" }
+```
+
+| error  | 含义                                                          | 来源                                         |
+|--------|---------------------------------------------------------------|----------------------------------------------|
+| `0`    | 修改成功                                                      | Redis + MySQL 均成功                         |
+| `1011` | 会话未登录，**或** MySQL 表示该 uid 不存在                    | 存储过程 `update_user_info` 返回 `-1`        |
+| `1013` | 缓存中查不到该用户资料（未做前置查询），**或** MySQL 其它失败 | `changeUserInfo` 返回 `false`，或其它非 0 值 |
+
+### 4.3 写入顺序与缓存行为
+
+1. 先写 Redis：`RedisManager::changeUserInfo` → `getUserInfo`（读取并续期 24h）→ 覆盖请求中出现的字段 → `insert`（更新用户名索引
+   `ubaseinfo_name_<name>`）+ `setUserBaseInfo`（覆盖 `ubaseinfo_<uid>`，TTL 24h）。
+2. 再写 MySQL：`Mysql_boost::changeUserInfo` → `CALL update_user_info(uid, name, desc, icon, sex, @error)`。
+3. 两步都成功才返回 `0`； **MySQL 失败不会回滚 Redis**。
+
+- 修改前必然先查询：客户端在编辑资料前会查询用户资料，该查询经 `getUserInfo` 把 `ubaseinfo_<uid>` 写入或续期到 24h，因此第
+  1 步实际能读到缓存。
+- 资料缓存 `ubaseinfo_<uid>` 统一由 `setUserBaseInfo` 写入（TTL **24h**）：登录 / 搜索回源数据库后写一次，`getUserInfo`
+  每次读取再续期 24h。
+- 存储过程 `update_user_info` 定义不在本仓库，需由数据库侧提供；`@error` 返回 `0` 成功、`-1` 用户不存在。
+
+## 5. 已知限制（本批新增）
+
+1. **编辑资料依赖前置查询**：`RedisManager::changeUserInfo` 读不到 `ubaseinfo_<uid>` 时返回 `false`（`1013`
+   ）且不写库。按约定客户端编辑前会先查询用户资料（查询会把缓存写入 / 续期），实际不会命中该分支；若跳过查询且缓存已过期，则仍会失败。
+2. **缓存 TTL 统一为 24h**：登录 / 搜索回源数据库与编辑资料回写都走 `setUserBaseInfo`（24h），`getUserInfo` 每次读取再续期
+   24h；只要用户 24h 内有过一次资料查询或登录，缓存就不会过期。
+3. **Redis 故障时回包缺少 `error` 字段**：`getUserInfo` 的 `expire` 与 `setUserBaseInfo` 的 `SET` / `EXPIRE`
+   都在异常捕获之外，Redis 不可用时会抛出，由 `dealMessage` 统一捕获；此时客户端收到只含 `id`、 **没有 `error` 字段**
+   的回包（不会返回 `1013`），客户端需按缺省失败处理。登录路径由 `GetBaseInfo` 的 try 兜底（回落数据库），不受影响。
+4. **改名不清理旧索引**：`ubaseinfo_name_<旧名>` 会保留至 TTL（7 天）到期，期间按旧用户名仍能搜到该用户。
+5. **弱一致**：Redis 先写、MySQL 后写，MySQL 失败时缓存已变更，不回滚。
+6. **无字段校验**：`name` / `desc` / `icon` 未做长度与内容过滤，`sex` 未校验是否属于 `0` / `1` / `2`；`remark`
+   缺失即清空备注，请客户端显式传值。
+7. **缓存内容解析失败不会回落 MySQL**：`getUserInfo` 只捕获异常，`Json::Reader::parse` 返回 `false` 时仍会用空
+   `Json::Value` 构造结果（`uid = 0`、字段为空串）。此时 `SearchUserByUid` 返回的是这份空资料，而不是数据库数据。
+
+## 6. 内部变更（不影响对外契约）
+
+| 内容                                                                                                                                                                                                                                                                                                                    |
+|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/public/const.h`：新增 `MESSAGE_SET_FRIEND_REMARK_REQ` / `_RSP`（`1029` / `1030`）与 `MESSAGE_CHANGE_USER_INFO_REQ` / `_RSP`（`1031` / `1032`）                                                                                                                                                                     |
+| `src/chatServer/LogicSystem.h` / `.cpp`：新增 `setFriendRemarkhandler`、`changeUserInfoHandler` 并在 `registerCallBacks` 注册；`SearchUserByUid` 改为调用 `RedisManager::getUserInfo`                                                                                                                                   |
+| `src/public/src/RedisManager_boost.*`：新增 `getUserInfo(uid)`（原 `SearchUserByUid` 中的缓存解析逻辑下沉，读取前把 key 续期 24h，保留 `token`，异常返回 `nullopt`）、`setUserBaseInfo(uid, info)`（写 `ubaseinfo_<uid>` 并设 TTL 24h）与 `changeUserInfo(...)`；`insert` 默认 TTL 改为 7 天；大量 `[[nodiscard]]` 标注 |
+| `LogicSystem::GetBaseInfo` 改为只接收 `uid`：缓存读取走 `RedisManager::getUserInfo`，回源数据库后走 `setUserBaseInfo`；`setFriendRemarkhandler` 响应改用 `MESSAGE_SET_FRIEND_REMARK_RSP`（`1030`）                                                                                                                      |
+| `src/public/sql/mysql/Mysql_boost.*`：新增协程版 `changeUserInfo`（`CALL update_user_info(?, ?, ?, ?, ?, @error)`，`std::optional` 参数直接绑定为 `NULL`）                                                                                                                                                              |
+| `RedisManager_boost.h` 引入 `data/UserInfo.h`（对外暴露 `std::optional<UserInfo>`)                                                                                                                                                                                                                                      |
+
 # 批次 2026-10-19（基线 `44ae18a`，提交于 2026-10-18）：聊天消息好友校验
 
 ## 1. 变更汇总

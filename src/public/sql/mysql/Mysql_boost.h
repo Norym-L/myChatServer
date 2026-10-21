@@ -80,6 +80,16 @@ public:
     net::awaitable<MysqlResult<std::vector<UserInfo> > > getUser(std::string name);
     net::awaitable<MysqlResult<std::vector<ApplyInfo> > > getFriendRequestList(std::uint64_t uid);
     net::awaitable<MysqlResult<std::vector<UidAndRemarkInUserFriend> > > getUserFriendList(std::uint64_t uid);
+    /**
+     * 用户信息修改
+     * @param uid uid
+     * @param name 名称
+     * @param desc 个性签名
+     * @param icon 头像
+     * @param sex 性别
+     * @return 0 成功
+     */
+    net::awaitable<int> changeUserInfo(std::uint64_t uid, std::optional<std::string> name, std::optional<std::string> desc, std::optional<std::string> icon, std::optional<Sex> sex);
 
 private:
     std::unique_ptr<mysql::connection_pool> m_pool;

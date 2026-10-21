@@ -1,11 +1,11 @@
 #include <boost/redis/src.hpp>
 #include "RedisManager_boost.h"
 
+#include <json/reader.h>
 #include <json/value.h>
 
 #include "ConfigManager.h"
 #include "MessageType.h"
-#include "data/UserInfo.h"
 
 net::awaitable<bool> RedisManager::registUser(const std::uint64_t uid, std::string server_name)
 {
@@ -51,6 +51,49 @@ net::awaitable<void> RedisManager::insert(const std::vector<std::shared_ptr<User
     {
         spdlog::warn("[redis] redis insert user_info failed, error: {}", e.what());
     }
+}
+
+net::awaitable<std::optional<UserInfo> > RedisManager::getUserInfo(const std::uint64_t uid)
+{
+    const auto base_key = USER_BASE_INFO + std::to_string(uid);
+    co_await expire(base_key, 24 * 60 * 60);
+    try
+    {
+        if (const auto info_str = co_await get(base_key); info_str.has_value())
+        {
+            Json::Reader reader;
+            Json::Value root;
+            reader.parse(info_str.value(), root);
+            co_return UserInfo(
+                root["token"].asString(),
+                root["name"].asString(),
+                root["email"].asString(),
+                root["desc"].asString(),
+                root["icon"].asString(),
+                root["uid"].asUInt64(),
+                static_cast<Sex>(root["sex"].asUInt())
+                );
+        }
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::warn("[logic system] get user base info from redis failed, key: {}, error: {}", base_key, e.what());
+        co_return std::nullopt;
+    }
+    co_return std::nullopt;
+}
+
+net::awaitable<void> RedisManager::setUserBaseInfo(const std::uint64_t uid, const UserInfo user_info)
+{
+    Json::Value root;
+    root["token"] = user_info.token;
+    root["name"] = user_info.name;
+    root["email"] = user_info.email;
+    root["desc"] = user_info.desc;
+    root["icon"] = user_info.icon;
+    root["uid"] = std::to_string(user_info.uid);
+    co_await set(USER_BASE_INFO + std::to_string(uid), root.toStyledString());
+    co_await expire(USER_BASE_INFO + std::to_string(uid), 24 * 60 * 60);
 }
 
 net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message message)
@@ -242,6 +285,22 @@ net::awaitable<bool> RedisManager::loadFriends(const std::uint64_t online_uid, c
         co_return false;
     }
     co_return success;
+}
+
+net::awaitable<bool> RedisManager::changeUserInfo(const uint64_t uid, const std::optional<std::string> name, const std::optional<std::string> desc, const std::optional<std::string> icon, const std::optional<Sex> sex)
+{
+    auto info = co_await getUserInfo(uid);
+    if (!info.has_value())
+    {
+        co_return false;
+    }
+    if (name.has_value()) info.value().name = name.value();
+    if (desc.has_value()) info.value().desc = desc.value();
+    if (icon.has_value()) info.value().icon = icon.value();
+    if (sex.has_value()) info.value().sex = sex.value();
+    co_await insert({std::make_shared<UserInfo>(info.value())});
+    co_await setUserBaseInfo(uid, std::move(info.value()));
+    co_return true;
 }
 
 net::awaitable<void> RedisManager::set(std::string key, std::string value)

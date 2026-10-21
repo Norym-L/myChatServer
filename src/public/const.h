@@ -64,6 +64,10 @@ enum MessageType : std::uint16_t
     MESSAGE_ACK_CHAT_MESSAGE_RSP,     //客户端确认收到消息回包
     MESSAGE_DEL_FRIEDN_REQ,           //删除好友请求
     MESSAGE_DEL_FRIEDN_RSP,           //删除好友回包
+    MESSAGE_SET_FRIEND_REMARK_REQ,    //设置好友备注
+    MESSAGE_SET_FRIEND_REMARK_RSP,    //设置好友备注回包
+    MESSAGE_CHANGE_USER_INFO_REQ,     //编辑用户资料请求
+    MESSAGE_CHANGE_USER_INFO_RSP,     //编辑用户资料回包
 };
 
 #include <fmt/format.h>

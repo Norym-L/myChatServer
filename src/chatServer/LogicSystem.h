@@ -38,7 +38,7 @@ public:
     /// 用户断开连接：异步删除在线状态 key（不等 30s TTL 自然过期）
     void offlineUser(std::uint64_t uid);
     // 获取用户信息
-    static net::awaitable<std::shared_ptr<UserInfo> > GetBaseInfo(const std::string& base_key, std::uint64_t uid);
+    static net::awaitable<std::shared_ptr<UserInfo> > GetBaseInfo(std::uint64_t uid);
 
 private:
     LogicSystem();
@@ -62,6 +62,8 @@ private:
     // 客户端确认收到聊天消息 客户端收到消息->发送服务器确认
     net::awaitable<void> ackChatMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     net::awaitable<void> delFriendHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    net::awaitable<void> setFriendRemarkhandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    net::awaitable<void> changeUserInfoHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
 
 
     [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);

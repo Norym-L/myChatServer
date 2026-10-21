@@ -17,6 +17,8 @@
 
 #include <Singleton.h>
 
+#include "data/UserInfo.h"
+
 struct UserInfo;
 
 namespace chat_message
@@ -69,40 +71,43 @@ class RedisManager : public TSingLeton<RedisManager>
     friend class TSingLeton;
 
 public:
-    net::awaitable<bool> registUser(std::uint64_t uid, std::string server_name);
-    net::awaitable<void> insert(std::vector<std::shared_ptr<UserInfo> > user_infos, long ex = 1800);
+    [[nodiscard]] net::awaitable<bool> registUser(std::uint64_t uid, std::string server_name);
+    net::awaitable<void> insert(std::vector<std::shared_ptr<UserInfo> > user_infos, long ex = 7 * 24 * 60 * 60);
+    [[nodiscard]] net::awaitable<std::optional<UserInfo> > getUserInfo(std::uint64_t uid);
+    net::awaitable<void> setUserBaseInfo(std::uint64_t uid, UserInfo user_info);
     net::awaitable<void> insertMessageToOffline(chat_message::Message message);
     net::awaitable<void> ackAndDelChatMessages(std::uint64_t to_uid, std::vector<std::string> message_ids);
-    net::awaitable<std::vector<chat_message::Message> > getMessageFromOffline(std::uint64_t to_uid, std::int64_t count = 1, MessageReadMode mode = MessageReadMode::New) const;
-    net::awaitable<std::int64_t> getPendingMessageCount(std::uint64_t uid) const;
-    net::awaitable<std::optional<std::string> > isUserOnLine(std::uint64_t uid);
-    net::awaitable<bool> isFriend(std::uint64_t online_uid, std::uint64_t other_uid);
-    net::awaitable<bool> addFriend(std::uint64_t online_uid, std::uint64_t other_uid);
-    net::awaitable<bool> removeFriend(std::uint64_t online_uid, std::uint64_t other_uid);
-    net::awaitable<bool> loadFriends(std::uint64_t online_uid, std::vector<std::uint64_t> friend_uids);
+    [[nodiscard]] net::awaitable<std::vector<chat_message::Message> > getMessageFromOffline(std::uint64_t to_uid, std::int64_t count = 1, MessageReadMode mode = MessageReadMode::New) const;
+    [[nodiscard]] net::awaitable<std::int64_t> getPendingMessageCount(std::uint64_t uid) const;
+    [[nodiscard]] net::awaitable<std::optional<std::string> > isUserOnLine(std::uint64_t uid);
+    [[nodiscard]] net::awaitable<bool> isFriend(std::uint64_t online_uid, std::uint64_t other_uid);
+    [[nodiscard]] net::awaitable<bool> addFriend(std::uint64_t online_uid, std::uint64_t other_uid);
+    [[nodiscard]] net::awaitable<bool> removeFriend(std::uint64_t online_uid, std::uint64_t other_uid);
+    [[nodiscard]] net::awaitable<bool> loadFriends(std::uint64_t online_uid, std::vector<std::uint64_t> friend_uids);
+    [[nodiscard]] net::awaitable<bool> changeUserInfo(uint64_t uid, std::optional<std::string> name, std::optional<std::string> desc, std::optional<std::string> icon, std::optional<Sex> sex);
 
-    net::awaitable<int64_t> del(std::vector<std::string> keys);
-    net::awaitable<bool> exists(std::string key);
-    net::awaitable<bool> expire(std::string key, std::int64_t seconds);
+    [[nodiscard]] net::awaitable<int64_t> del(std::vector<std::string> keys);
+    [[nodiscard]] net::awaitable<bool> exists(std::string key);
+    [[nodiscard]] net::awaitable<bool> expire(std::string key, std::int64_t seconds);
     // key - value
     net::awaitable<void> set(std::string key, std::string value);
-    net::awaitable<std::optional<std::string> > get(std::string key);
+    [[nodiscard]] net::awaitable<std::optional<std::string> > get(std::string key);
     // key - h_key - value
-    net::awaitable<int64_t> hSet(std::string key, std::string field, std::string value);
-    net::awaitable<std::optional<std::string> > hGet(std::string key, std::string field);
-    net::awaitable<bool> hExists(std::string key, std::string field);
-    net::awaitable<int64_t> hDel(std::string key, std::vector<std::string> fields);
+    [[nodiscard]] net::awaitable<int64_t> hSet(std::string key, std::string field, std::string value);
+    [[nodiscard]] net::awaitable<std::optional<std::string> > hGet(std::string key, std::string field);
+    [[nodiscard]] net::awaitable<bool> hExists(std::string key, std::string field);
+    [[nodiscard]] net::awaitable<int64_t> hDel(std::string key, std::vector<std::string> fields);
     // set key - (value1, value2 ...)
-    net::awaitable<std::int64_t> setAdd(std::string key, std::vector<std::string> members);
-    net::awaitable<std::int64_t> setRemove(std::string key, std::vector<std::string> members);
-    net::awaitable<bool> setIsMember(std::string key, std::string member);
+    [[nodiscard]] net::awaitable<std::int64_t> setAdd(std::string key, std::vector<std::string> members);
+    [[nodiscard]] net::awaitable<std::int64_t> setRemove(std::string key, std::vector<std::string> members);
+    [[nodiscard]] net::awaitable<bool> setIsMember(std::string key, std::string member);
     // stream key - stream
-    net::awaitable<std::string> streamAdd(std::string stream_name, std::vector<std::pair<std::string, std::string> > field_values, bool make_stream = true);
+    [[nodiscard]] net::awaitable<std::string> streamAdd(std::string stream_name, std::vector<std::pair<std::string, std::string> > field_values, bool make_stream = true);
     net::awaitable<void> streamCreateGroup(std::string stream_name, std::string group_name, std::int64_t start_at = 0, bool make_stream = true) const;
-    net::awaitable<std::vector<StreamResult> > streamReadGroup(std::string group_name, std::string consumer, std::string stream_name, MessageReadMode mode = MessageReadMode::New, int64_t count = 1) const;
+    [[nodiscard]] net::awaitable<std::vector<StreamResult> > streamReadGroup(std::string group_name, std::string consumer, std::string stream_name, MessageReadMode mode = MessageReadMode::New, int64_t count = 1) const;
     // policy:  "KEEPREF" | "DELREF" | "ACKED" 返回值：每个id的情况 1 删除， -1 不存在， 2 确认但未删除
-    net::awaitable<std::vector<std::int64_t> > streamAckDel(std::string stream_name, std::string group_name, std::vector<std::string> ids, std::string policy = "ACKED");
-    net::awaitable<PendingSummary> streamPending(std::string stream_name, std::string group_name) const;
+    [[nodiscard]] net::awaitable<std::vector<std::int64_t> > streamAckDel(std::string stream_name, std::string group_name, std::vector<std::string> ids, std::string policy = "ACKED");
+    [[nodiscard]] net::awaitable<PendingSummary> streamPending(std::string stream_name, std::string group_name) const;
 
     /// 使用调用方提供的 io_context（如 ChatServer 的逻辑线程）：业务协程与 Redis 命令跑在同一条线程上
     void init(net::io_context& io_context);
@@ -230,7 +235,7 @@ private:
         {
             throw std::runtime_error(std::string("redis error: ") + e.what());
         }
-        auto& node = std::get < 0 > (resp);
+        auto& node = std::get<0>(resp);
         if (node.has_error())
             throw std::runtime_error("redis cmd failed: " + node.error().diagnostic);
         co_return node.value();
@@ -255,7 +260,7 @@ private:
         {
             throw std::runtime_error(std::string("redis error: ") + e.what());
         }
-        auto& node = std::get < 0 > (resp);
+        auto& node = std::get<0>(resp);
         if (node.has_error())
             throw std::runtime_error("redis cmd failed: " + node.error().diagnostic);
         co_return node.value();
@@ -281,7 +286,7 @@ private:
         {
             throw std::runtime_error(std::string("redis error: ") + e.what());
         }
-        auto& node = std::get < 0 > (resp);
+        auto& node = std::get<0>(resp);
         if (node.has_error())
             throw std::runtime_error("redis cmd failed: " + node.error().diagnostic);
         co_return node.value();
