@@ -67,9 +67,10 @@ int main(int argc, char* argv[])
                 grpc_server->Shutdown();
             });
 
-        // 逻辑线程的 io_context 同时承载 Redis 连接：业务协程与 Redis 命令都在这一条线程上执行
+        // 逻辑线程的 io_context 同时承载 Redis 和 mysql 连接
         auto& logic = LogicSystem::GetInstance();
         RedisManager::GetInstance().init(logic.getIoContext());
+        MySqlManager::GetInstance().init(logic.getIoContext());
 
         // serverheartbeat_<name> / logincount_<name> 带 30s TTL，由逻辑线程上的定时协程续期
         ServerRegistry::GetInstance().start(logic.getIoContext(),

@@ -1,5 +1,21 @@
 #include "MySqlManager.h"
 
+void MySqlManager::init(net::io_context& io_context)
+{
+    auto& config = ConfigManager::GetInstance();
+
+    mysql::pool_params params;
+    params.server_address.emplace_host_and_port(config["Mysql"]["host"], std::stoi(config["Mysql"]["port"]));
+    params.username = "root";
+    params.password = config["Mysql"]["passwd"];
+    params.thread_safe = true;
+    params.initial_size = 4;
+    params.max_size = 10;
+    params.database = "chatserver";
+
+    m_mysqlBoost.start(io_context, std::move(params));
+}
+
 int MySqlManager::registerUser(const std::string& email, const std::string& name, const std::string& password) const
 {
     return m_mySqlDao.registerUser(email, name, password);
@@ -64,5 +80,3 @@ std::vector<UidAndRemarkInUserFriend> MySqlManager::getUserFriendList(const uint
 {
     return m_mySqlDao.getUserFriendList(uid);
 }
-
-MySqlManager::MySqlManager() = default;

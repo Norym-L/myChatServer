@@ -20,13 +20,13 @@ SqlConnectionPool::SqlConnectionPool(
     const int pool_size)
     : m_host(host), m_port(port), m_user(user), m_password(password), m_database(database), m_pool_size(pool_size)
 {
-    m_io_context = std::make_unique<asio::io_context>();
+    m_io_context = std::make_unique<net::io_context>();
 
     // 创建 SSL context；连接对象按引用持有它，因此必须由连接池成员持有以保证生命周期长于池内连接
-    m_ssl_ctx = std::make_unique<asio::ssl::context>(asio::ssl::context::tls_client);
+    m_ssl_ctx = std::make_unique<net::ssl::context>(net::ssl::context::tls_client);
 
     // 解析主机名
-    asio::ip::tcp::resolver resolver(m_io_context->get_executor());
+    net::ip::tcp::resolver resolver(m_io_context->get_executor());
     auto endpoints = resolver.resolve(m_host, std::to_string(m_port));
 
     // 连接参数

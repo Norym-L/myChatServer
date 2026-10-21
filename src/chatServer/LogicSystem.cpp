@@ -111,19 +111,20 @@ net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::s
     }
 
     // 数据库查询
-    auto user_info = MySqlManager::GetInstance().getUser(uid);
-    if (!user_info)
+    auto [error_code, value] = co_await MySqlManager::GetInstance().co_run().getUser(uid);
+    if (error_code != 0 || !value.has_value())
     {
         co_return nullptr;
     }
+    const auto& info = value.value();
 
     Json::Value root;
-    root["token"] = user_info->token;
-    root["name"] = user_info->name;
-    root["email"] = user_info->email;
-    root["desc"] = user_info->desc;
-    root["icon"] = user_info->icon;
-    root["uid"] = user_info->uid;
+    root["token"] = info.token;
+    root["name"] = info.name;
+    root["email"] = info.email;
+    root["desc"] = info.desc;
+    root["icon"] = info.icon;
+    root["uid"] = info.uid;
     try
     {
         co_await RedisManager::GetInstance().set(base_key, root.toStyledString());
@@ -133,7 +134,7 @@ net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::s
     {
         spdlog::warn("[logic][LogicSystem::getBaseInfo] Redis insert error: {}", e.what());
     }
-    co_return user_info;
+    co_return std::make_shared<UserInfo>(info);
 }
 
 net::awaitable<void> LogicSystem::dealMessage()
@@ -333,14 +334,15 @@ net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& 
     }
     if (!friend_set_exists)
     {
+        std::vector<std::uint64_t> friend_uids;
+        friend_uids.emplace_back(0);
         // 加入一个空值，防止用户在线时好友被删为0使redis set被删除，再次添加好友时会因为set不存在而产生"你是对方的好友而对方不是你的好友"的bug
-        std::vector<std::uint64_t> friend_uids{};
-        friend_uids.push_back(0);
-        for (const auto& [r, friend_uid]: MySqlManager::GetInstance().getUserFriendList(uid))
+        auto [error_code, friend_infos] = co_await MySqlManager::GetInstance().co_run().getUserFriendList(uid);
+        for (const auto& [remark, friend_uid]: friend_infos)
         {
             friend_uids.push_back(friend_uid);
         }
-        if (!co_await redis.loadFriends(uid, friend_uids))
+        if (!co_await redis.loadFriends(uid, std::move(friend_uids)))
         {
             return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
             co_return;
@@ -493,9 +495,8 @@ net::awaitable<void> LogicSystem::sendFriendRequestHandler(const std::shared_ptr
     const std::string verify_info = root["verify_info"].asString();
     const std::string remark = root["remark"].asString();
 
-    std::uint64_t add_frined_request_id{};
-    const auto code = MySqlManager::GetInstance().sendFriendRequest(add_frined_request_id, form_uid, to_uid, verify_info, remark);
-    if (code < 0) // 异常处理
+    const auto [code, add_frined_request_id] = co_await MySqlManager::GetInstance().co_run().sendFriendRequest(form_uid, to_uid, verify_info, remark);
+    if (code != 0) // 异常处理
     {
         if (code == -1 || code == -2) // 这里拦截用户不存在
         {
@@ -561,23 +562,29 @@ net::awaitable<void> LogicSystem::syncFriendRequestListHandler(const std::shared
     }
     spdlog::debug("[logic system] sync friend request list, uid: {}", uid);
 
-    std::vector<std::shared_ptr<ApplyInfo> > request_infos = MySqlManager::GetInstance().getFriendRequestListByUid(uid);
+    const auto [error_code, mysql_value] = co_await MySqlManager::GetInstance().co_run().getFriendRequestList(uid);
+
+    if (error_code != 0)
+    {
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        co_return;
+    }
 
     return_value["error"] = ErrorCode::SUCCESS;
-    return_value["count"] = std::to_string(request_infos.size());
+    return_value["count"] = std::to_string(mysql_value.size());
 
-    for (const auto& info: request_infos)
+    for (const auto& info: mysql_value)
     {
         Json::Value value;
-        value["id"] = std::to_string(info->add_friend_request_id);
-        value["from_uid"] = std::to_string(info->from_uid);
-        value["to_uid"] = std::to_string(info->to_uid);
-        value["name"] = info->name;
-        value["verify_info"] = info->desc;
-        value["icon"] = info->icon;
-        value["sex"] = info->sex;
-        value["state"] = info->status;
-        value["nick"] = info->nick; // 没有备注或是接收方则 nick备注 为空字符串
+        value["id"] = std::to_string(info.add_friend_request_id);
+        value["from_uid"] = std::to_string(info.from_uid);
+        value["to_uid"] = std::to_string(info.to_uid);
+        value["name"] = info.name;
+        value["verify_info"] = info.desc;
+        value["icon"] = info.icon;
+        value["sex"] = info.sex;
+        value["state"] = info.status;
+        value["nick"] = info.nick; // 没有备注或是接收方则 nick备注 为空字符串
         return_value["apply_infos"].append(value);
     }
 }
@@ -621,9 +628,8 @@ net::awaitable<void> LogicSystem::authFriendRequestHandler(const std::shared_ptr
         co_return;
     }
     spdlog::debug("[logic system] authFriendRequestHandler, id: {} state: {}", add_friend_request_id, state);
-    std::uint64_t sender_uid{}; // 这条好友申请的发送者
-    const auto code = MySqlManager::GetInstance().handleFriendRequest(sender_uid, add_friend_request_id, session->getUserId(), static_cast<FriendApplyStatus>(state));
-    if (code < 0)
+    const auto [code, sender_uid] = co_await MySqlManager::GetInstance().co_run().handleFriendRequest(add_friend_request_id, session->getUserId(), static_cast<FriendApplyStatus>(state));
+    if (code != 0)
     {
         if (code == -1)
         {
@@ -825,14 +831,14 @@ net::awaitable<void> LogicSystem::delFriendHandler(const std::shared_ptr<CSessio
         co_return;
     }
 
-    const auto code = MySqlManager::GetInstance().deleteFriend(session->getUserId(), friend_uid);
-    if (code == -1)
-    {
-        return_value["error"] = ErrorCode::NOT_FRIEND;
-        co_return;
-    }
+    const auto code = co_await MySqlManager::GetInstance().co_run().deleteFriend(session->getUserId(), friend_uid);
     if (code != 0)
     {
+        if (code == -1)
+        {
+            return_value["error"] = ErrorCode::NOT_FRIEND;
+            co_return;
+        }
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         co_return;
     }
@@ -915,13 +921,16 @@ net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::SearchUserByUid(const ui
     }
 
     // 查数据库
-    const auto user_info = MySqlManager::GetInstance().getUser(uid);
+    const auto [error, user_info] = co_await MySqlManager::GetInstance().co_run().getUser(uid);
 
-    if (user_info)
+    if (error != 0 || !user_info.has_value())
     {
-        co_await RedisManager::GetInstance().insert({user_info});
+        co_return nullptr;
     }
-    co_return user_info;
+
+    const auto shared_info = std::make_shared<UserInfo>(user_info.value());
+    co_await RedisManager::GetInstance().insert({shared_info});
+    co_return shared_info;
 }
 
 net::awaitable<std::vector<std::shared_ptr<UserInfo> > > LogicSystem::SearchUserByName(const std::string& name)
@@ -949,8 +958,16 @@ net::awaitable<std::vector<std::shared_ptr<UserInfo> > > LogicSystem::SearchUser
     }
 
     // 查数据库
-    auto user_infos = MySqlManager::GetInstance().getUser(name);
-
-    co_await RedisManager::GetInstance().insert(user_infos);
-    co_return user_infos;
+    auto [error, user_infos] = co_await MySqlManager::GetInstance().co_run().getUser(name);
+    std::vector<std::shared_ptr<UserInfo> > returns;
+    if (!(error != 0 || user_infos.empty()))
+    {
+        returns.reserve(user_infos.size());
+        for (const auto& info: user_infos)
+        {
+            returns.emplace_back(std::make_shared<UserInfo>(info));
+        }
+        co_await RedisManager::GetInstance().insert(returns);
+    }
+    co_return returns;
 }

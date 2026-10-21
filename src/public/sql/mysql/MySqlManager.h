@@ -1,6 +1,9 @@
 #ifndef GATESERVER_MYSQLMANAGER_H
 #define GATESERVER_MYSQLMANAGER_H
 
+#include "Mysql_boost.h"
+
+
 #include "MySqlDao.h"
 #include <ConfigManager.h>
 
@@ -10,6 +13,11 @@ class MySqlManager : public TSingLeton<MySqlManager>
     friend class TSingLeton;
 
 public:
+    // 协程方法入口
+    [[nodiscard]] Mysql_boost& co_run() { return m_mysqlBoost; }
+    void init(net::io_context& io_context);
+
+
     /**
      * 注册用户
      * @param email 邮箱
@@ -71,12 +79,13 @@ public:
     [[nodiscard]] std::shared_ptr<UserInfo> getUser(std::uint64_t uid) const;
     [[nodiscard]] std::vector<std::shared_ptr<UserInfo> > getUser(const std::string& name) const;
     /// 获取关于此用户的好友申请消息列表
-    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo>> getFriendRequestListByUid(uint64_t uid) const;
+    [[nodiscard]] std::vector<std::shared_ptr<ApplyInfo> > getFriendRequestListByUid(uint64_t uid) const;
     [[nodiscard]] std::vector<UidAndRemarkInUserFriend> getUserFriendList(uint64_t uid) const;
 
 private:
-    MySqlManager();
+    MySqlManager() = default;
     MySqlDao m_mySqlDao;
+    Mysql_boost m_mysqlBoost;
 };
 
 #endif //GATESERVER_MYSQLMANAGER_H

@@ -5,4 +5,10 @@
     \长时间不上线redis自动过期好友
     客户端查询好友列表走redis
 
-使用boost重构redis manager
+\使用boost重构redis manager
+
+
+\mysql 改协程
+mysql 实现修改用户备注的接口
+mysql 实现修改用户自己信息的接口
+LogicSystem::dealMessage() 改并发，redis、mysql加连接池

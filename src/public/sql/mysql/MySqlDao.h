@@ -26,7 +26,7 @@ enum class MatchResult
 };
 
 namespace mysql = boost::mysql;
-namespace asio = boost::asio;
+namespace net = boost::asio;
 
 class SqlConnection
 {
@@ -64,8 +64,8 @@ public:
     void close();
 
 private:
-    std::unique_ptr<asio::io_context> m_io_context = nullptr;
-    std::unique_ptr<asio::ssl::context> m_ssl_ctx = nullptr; // 需长于池内连接的生命周期：连接按引用持有 SSL 上下文
+    std::unique_ptr<net::io_context> m_io_context = nullptr;
+    std::unique_ptr<net::ssl::context> m_ssl_ctx = nullptr; // 需长于池内连接的生命周期：连接按引用持有 SSL 上下文
     std::string m_host;
     int m_port;
     std::string m_user;
