@@ -122,7 +122,34 @@ MySqlDao::~MySqlDao()
 int MySqlDao::registerUser(const std::string& email, const std::string& name, const std::string& password) const
 {
     auto argon2id_password = PasswordVerify::hashPassword(password); // argon2id加密密码
-    return callMysqlSpWithResult("CALL reg_user(?, ?, ?, @result)", name, email, argon2id_password);
+
+    /*
+     * reg_user 的签名是 (p_name, p_email, p_password, OUT p_uid, OUT p_error) —— 5 个参数。
+     * 早先这里只写了 `CALL reg_user(?, ?, ?, @result)`（4 个），MySQL 直接报
+     *   1318 Incorrect number of arguments ... expected 5, got 4
+     * 而 `callMysqlSpWithResult` 只读 `@result`、失败返回 -11，上层又把 -11 当 uid 回显，
+     * 于是注册表现为「error=0 但 uid=-11、库里没有记录」的假成功。
+     *
+     * 改用 xxxInUint 版本：它按 (request_id, error_code) 两个 OUT 参数读取，
+     * 且会区分 NULL 与 0 —— 正是这个存储过程需要的。
+     *
+     * @return 成功返回新 uid（>0）；失败返回 -1（与上层 `uid <= 0` 的判断对齐）
+     */
+    std::uint64_t uid = 0;
+    const int error_code = callMysqlSpWithResultInUint(
+        uid, "CALL reg_user(?, ?, ?, @request_id, @error_code)", name, email, argon2id_password);
+    if (error_code != 0)
+    {
+        spdlog::warn("[MySqlDao] registerUser failed, error_code: {}", error_code);
+        return -1;
+    }
+    if (uid == 0)
+    {
+        // 失败路径下 p_uid 可能没被赋值：宁可报失败，也别把 0 当成合法 uid
+        spdlog::warn("[MySqlDao] registerUser returned uid=0 (error_code=0)");
+        return -1;
+    }
+    return static_cast<int>(uid);
 }
 
 int MySqlDao::sendFriendRequest(std::uint64_t& add_friend_request_id, const std::uint64_t applicant_uid, const std::uint64_t receiver_uid, const std::string& verify_message, const std::string& remark) const

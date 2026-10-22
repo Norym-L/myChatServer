@@ -91,7 +91,8 @@ net::awaitable<void> RedisManager::setUserBaseInfo(const std::uint64_t uid, cons
     root["email"] = user_info.email;
     root["desc"] = user_info.desc;
     root["icon"] = user_info.icon;
-    root["uid"] = std::to_string(user_info.uid);
+    root["uid"] = user_info.uid;
+    root["sex"] = user_info.sex;
     co_await set(USER_BASE_INFO + std::to_string(uid), root.toStyledString());
     co_await expire(USER_BASE_INFO + std::to_string(uid), 24 * 60 * 60);
 }

@@ -187,9 +187,10 @@ LogicSystem::LogicSystem()
 
                 //注册用户
                 int uid = MySqlManager::GetInstance().registerUser(email, name, password);
-                if (uid == -1)
+                // <= 0 一律算失败：只判 -1 会把 DAO 的 -11（数据库异常）当成 uid 回显给客户端
+                if (uid <= 0)
                 {
-                    spdlog::debug("[LogicSystem] /user_register register user email: {} failed!", email);
+                    spdlog::warn("[LogicSystem] /user_register register user email: {} failed, ret: {}", email, uid);
                     root["error"] = static_cast<int>(ErrorCode::REGISTER_USER_FAILED);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
