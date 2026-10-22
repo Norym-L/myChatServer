@@ -90,6 +90,43 @@ public:
      * @return 0 成功
      */
     net::awaitable<int> changeUserInfo(std::uint64_t uid, std::optional<std::string> name, std::optional<std::string> desc, std::optional<std::string> icon, std::optional<Sex> sex);
+    // 群聊操作
+    /**
+     * 创建群聊
+     * @param group_name 群名称
+     * @param owner_id 群主id
+     * @param avatar_url 群头像
+     * @param max_members 最大群员
+     * @param announcement 群公告
+     * @return 群id, 0 代表新建成功, -1 代表用户不存在, -10 代表数据库异常
+     */
+    net::awaitable<MysqlResult<std::uint64_t> > createChatGroup(std::string group_name, std::uint64_t owner_id, std::string avatar_url = "", std::uint32_t max_members = 500, std::string announcement = "");
+
+    /**
+     * 邀请入群
+     * @param group_id 群id
+     * @param uid 新成员
+     * @param operator_id 邀请者
+     * @return 0 成功, -1 代表群不存在, -2 代表操作人权限不足, -3 代表用户已在群内, -4 代表群人数已满, -10 代表数据库异常
+     */
+    net::awaitable<int> addGroupMember(std::uint64_t group_id, std::uint64_t uid, std::uint64_t operator_id);
+
+    /**
+     * 踢出群聊
+     * @param group_id 群id
+     * @param uid 被踢者
+     * @param operator_id 操作者
+     * @return 0 成功, -1 代表群不存在, -2 代表不能踢出群主, -3 代表目标用户不在群内, -4 代表操作人权限不足, -5 代表管理员不能互踢, -10 代表数据库异常
+     */
+    net::awaitable<int> kickGroupMember(std::uint64_t group_id, std::uint64_t uid, std::uint64_t operator_id);
+
+    /**
+     * 解散群聊
+     * @param group_id 群id
+     * @param operator_id 操作者
+     * @return  0 代表解散成功, -1 代表群不存在, -2 代表权限不足（只有群主能解散), -10 代表数据库异常
+     */
+    net::awaitable<int> dismissGroup(std::uint64_t group_id, std::uint64_t operator_id);
 
 private:
     std::unique_ptr<mysql::connection_pool> m_pool;

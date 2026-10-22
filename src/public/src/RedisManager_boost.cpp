@@ -1,6 +1,8 @@
 #include <boost/redis/src.hpp>
 #include "RedisManager_boost.h"
 
+#include <boost/asio/detached.hpp>
+#include <boost/asio/strand.hpp>
 #include <json/reader.h>
 #include <json/value.h>
 
@@ -95,12 +97,38 @@ net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message 
 {
     try
     {
-        co_await streamAdd((message.is_to_group ? GROUP_OFFLINE_MESSAGE_STREAM : USER_OFFLINE_MESSAGE_STREAM) + std::to_string(message.to_uid),
-                           {
-                               {"from_uid", std::to_string(message.from_uid)},
-                               {"type", std::to_string(message.type)},
-                               {"body", message.body}
-                           });
+        if (!message.is_to_group) // 私聊
+        {
+            co_await streamAdd(USER_OFFLINE_MESSAGE_STREAM + std::to_string(message.to_uid),
+                               {
+                                   {"group", "f"},
+                                   {"from_uid", std::to_string(message.from_uid)},
+                                   {"type", std::to_string(message.type)},
+                                   {"body", message.body}
+                               });
+        }
+        else // 群聊
+        {
+            const auto user_strs = co_await getUsersFromGroup(message.to_uid);
+            if (user_strs.empty()) { co_return; }
+            std::vector<std::string> stream_names;
+            std::vector<std::vector<std::pair<std::string, std::string> > > insert_values;
+            stream_names.reserve(user_strs.size());
+            insert_values.reserve(user_strs.size());
+
+            for (const auto& member_uid: user_strs)
+            {
+                stream_names.emplace_back(USER_OFFLINE_MESSAGE_STREAM + member_uid);
+                std::vector<std::pair<std::string, std::string> > value = {
+                    {"group", "y"},
+                    {"from_uid", std::to_string(message.from_uid)},
+                    {"type", std::to_string(message.type)},
+                    {"body", message.body}
+                };
+                insert_values.emplace_back(std::move(value));
+            }
+            co_await streamsAdd(std::move(stream_names), std::move(insert_values));
+        }
     }
     catch (std::exception& e)
     {
@@ -144,7 +172,8 @@ net::awaitable<std::vector<chat_message::Message> > RedisManager::getMessageFrom
         message.message_id = id;
         for (const auto& [key, value]: fields)
         {
-            if (key == "from_uid") message.from_uid = std::stoull(value);
+            if (key == "group") value == "f" ? message.is_to_group = false : message.is_to_group = true;
+            else if (key == "from_uid") message.from_uid = std::stoull(value);
             else if (key == "type") message.type = static_cast<chat_message::Type>(std::stoi(value));
             else if (key == "body") message.body = value;
         }
@@ -298,6 +327,31 @@ net::awaitable<bool> RedisManager::changeUserInfo(const uint64_t uid, const std:
     co_return true;
 }
 
+net::awaitable<void> RedisManager::insertToGroup(const std::uint64_t group_id, std::vector<std::string> uids)
+{
+    co_await setAdd(CHAT_GROUP_PERFIX + std::to_string(group_id), std::move(uids));
+}
+
+net::awaitable<std::vector<std::string> > RedisManager::getUsersFromGroup(const std::uint64_t group_id)
+{
+    co_return co_await setMembers(CHAT_GROUP_PERFIX + std::to_string(group_id));
+}
+
+net::awaitable<bool> RedisManager::kickUserFromGroup(const std::uint64_t group_id, const std::string uid)
+{
+    co_return co_await setRemove(CHAT_GROUP_PERFIX + std::to_string(group_id), {uid}) == 1;
+}
+
+net::awaitable<bool> RedisManager::removeGroup(const std::uint64_t group_id)
+{
+    co_return co_await del({CHAT_GROUP_PERFIX + std::to_string(group_id)}) == 1;
+}
+
+net::awaitable<bool> RedisManager::isInGroup(const std::uint64_t group_id, const std::uint64_t uid)
+{
+    co_return co_await setIsMember(CHAT_GROUP_PERFIX + std::to_string(group_id), std::to_string(uid));
+}
+
 net::awaitable<void> RedisManager::set(std::string key, std::string value, std::int64_t ex)
 {
     co_return co_await redisCallWithoutReturn<>("SET", std::move(key), std::move(value), "EX", ex);
@@ -355,6 +409,11 @@ net::awaitable<std::int64_t> RedisManager::setRemove(std::string key, const std:
     co_return co_await redisCallRange<int64_t>("SREM", std::move(key), members);
 }
 
+net::awaitable<std::vector<std::string> > RedisManager::setMembers(std::string key)
+{
+    co_return co_await redisCall<std::vector<std::string> >("SMEMBERS", std::move(key));
+}
+
 net::awaitable<bool> RedisManager::setIsMember(std::string key, std::string member)
 {
     co_return co_await redisCall<int64_t>("SISMEMBER", std::move(key), std::move(member));
@@ -379,6 +438,78 @@ net::awaitable<std::string> RedisManager::streamAdd(std::string stream_name, std
         vector.push_back(std::move(value));
     }
     co_return co_await redisCallRange<std::string>("XADD", std::move(stream_name), vector);
+}
+
+// ReSharper disable once CppMemberFunctionMayBeConst 协程
+net::awaitable<std::vector<std::string> > RedisManager::streamsAdd(
+    std::vector<std::string> stream_names,
+    std::vector<std::vector<std::pair<std::string, std::string> > > field_values,
+    const bool make_stream)
+{
+    if (!initialized() || stream_names.size() != field_values.size() || stream_names.empty())
+    {
+        throw std::runtime_error("[redis] RedisManager is not initialized");
+    }
+
+    redis::request req;
+    std::vector<std::string> args_mid;
+
+    if (!make_stream)
+    {
+        args_mid.reserve(field_values[0].size() * 2 + 2);
+        args_mid.emplace_back("NOMKSTREAM");
+    }
+    else
+    {
+        args_mid.reserve(field_values[0].size() * 2 + 1);
+    }
+    args_mid.emplace_back("*");
+
+    // 构造命令
+    for (auto index = 0; index < stream_names.size(); ++index)
+    {
+        auto args = args_mid;
+        for (auto& [field, value]: field_values[index])
+        {
+            args.push_back(std::move(field));
+            args.push_back(std::move(value));
+        }
+        req.push_range("XADD", std::move(stream_names[index]), std::begin(args), std::end(args));
+    }
+
+    redis::generic_response resp;
+    try
+    {
+        co_await execOnRedisStrand([&]() -> net::awaitable<void>
+            {
+                co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+            });
+    }
+    catch (const boost::system::system_error& e)
+    {
+        throw std::runtime_error(std::string("redis error: ") + e.what());
+    }
+
+    std::vector<std::string> msg_ids;
+    if (!resp.has_value())
+    {
+        co_return std::vector<std::string>{};
+    }
+
+    for (const auto& node: resp.value())
+    {
+        if (node.data_type == redis::resp3::type::simple_string ||
+            node.data_type == redis::resp3::type::blob_string)
+        {
+            msg_ids.push_back(node.value);
+        }
+        else if (node.data_type == redis::resp3::type::simple_error)
+        {
+            throw std::runtime_error("redis cmd failed: " + node.value);
+        }
+    }
+
+    co_return msg_ids;
 }
 
 net::awaitable<void> RedisManager::streamCreateGroup(std::string stream_name, std::string group_name, const std::int64_t start_at, const bool make_stream) const

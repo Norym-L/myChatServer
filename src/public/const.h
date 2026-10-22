@@ -32,6 +32,9 @@ enum ErrorCode
     REQUEST_VALUE_INVALID              = 1020, // 客户端请求数据非法
     DOUBLE_HANDLE_REQUEST              = 1021, // 重复处理请求
     NOT_FRIEND                         = 1022, // 不是好友关系
+    GROUP_ID_INVALID                   = 1023, // 群id非法
+    NO_POWER                           = 1024, // 权限不足
+    GROUP_FULLED                       = 1025, // 群已满
 };
 
 enum MessageType : std::uint16_t
@@ -68,6 +71,14 @@ enum MessageType : std::uint16_t
     MESSAGE_SET_FRIEND_REMARK_RSP,    //设置好友备注回包
     MESSAGE_CHANGE_USER_INFO_REQ,     //编辑用户资料请求
     MESSAGE_CHANGE_USER_INFO_RSP,     //编辑用户资料回包
+    MESSAGE_GROUP_CREATE_REQ,         //创建群聊
+    MESSAGE_GROUP_CREATE_RSP,         //创建群聊回包
+    MESSAGE_GROUP_ADD_MEMBERS_REQ,    //邀请用户加入群聊请求
+    MESSAGE_GROUP_ADD_MEMBERS_RSP,    //邀请用户加入群聊回包
+    MESSAGE_GROUP_KICK_MEMBER_REQ,    //群聊踢人请求
+    MESSAGE_GROUP_KICK_MEMBER_RSP,    //群聊踢人回包
+    MESSAGE_GROUP_DISMISS_REQ,        //解散群聊请求
+    MESSAGE_GROUP_DISMISS_RSP,        //解散群聊回包
 };
 
 #include <fmt/format.h>

@@ -4,7 +4,6 @@
 #include <boost/redis/connection.hpp>
 #include <boost/redis/request.hpp>
 #include <boost/redis/response.hpp>
-#include <boost/asio.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/executor_work_guard.hpp>
@@ -84,7 +83,12 @@ public:
     [[nodiscard]] net::awaitable<bool> addFriend(std::uint64_t online_uid, std::uint64_t other_uid);
     [[nodiscard]] net::awaitable<bool> removeFriend(std::uint64_t online_uid, std::uint64_t other_uid);
     [[nodiscard]] net::awaitable<bool> loadFriends(std::uint64_t online_uid, std::vector<std::uint64_t> friend_uids);
-    [[nodiscard]] net::awaitable<bool> changeUserInfo(uint64_t uid, std::optional<std::string> name, std::optional<std::string> desc, std::optional<std::string> icon, std::optional<Sex> sex);
+    [[nodiscard]] net::awaitable<bool> changeUserInfo(std::uint64_t uid, std::optional<std::string> name, std::optional<std::string> desc, std::optional<std::string> icon, std::optional<Sex> sex);
+    net::awaitable<void> insertToGroup(std::uint64_t group_id, std::vector<std::string> uids);         // 添加好友到群聊,没有群聊就创建群聊
+    [[nodiscard]] net::awaitable<std::vector<std::string> > getUsersFromGroup(std::uint64_t group_id); // 获取群友
+    [[nodiscard]] net::awaitable<bool> kickUserFromGroup(std::uint64_t group_id, std::string uid);     // 把人踢出群聊
+    [[nodiscard]] net::awaitable<bool> removeGroup(std::uint64_t group_id);                            // 删除解散群聊
+    [[nodiscard]] net::awaitable<bool> isInGroup(std::uint64_t group_id, std::uint64_t uid);           // 是否在群里
 
     [[nodiscard]] net::awaitable<int64_t> del(std::vector<std::string> keys);
     [[nodiscard]] net::awaitable<bool> exists(std::string key);
@@ -100,9 +104,12 @@ public:
     // set key - (value1, value2 ...)
     [[nodiscard]] net::awaitable<std::int64_t> setAdd(std::string key, std::vector<std::string> members);
     [[nodiscard]] net::awaitable<std::int64_t> setRemove(std::string key, std::vector<std::string> members);
+    [[nodiscard]] net::awaitable<std::vector<std::string> > setMembers(std::string key);
     [[nodiscard]] net::awaitable<bool> setIsMember(std::string key, std::string member);
+
     // stream key - stream
     [[nodiscard]] net::awaitable<std::string> streamAdd(std::string stream_name, std::vector<std::pair<std::string, std::string> > field_values, bool make_stream = true);
+    [[nodiscard]] net::awaitable<std::vector<std::string> > streamsAdd(std::vector<std::string> stream_names, std::vector<std::vector<std::pair<std::string, std::string> > > field_values, bool make_stream = true);
     net::awaitable<void> streamCreateGroup(std::string stream_name, std::string group_name, std::int64_t start_at = 0, bool make_stream = true) const;
     [[nodiscard]] net::awaitable<std::vector<StreamResult> > streamReadGroup(std::string group_name, std::string consumer, std::string stream_name, MessageReadMode mode = MessageReadMode::New, int64_t count = 1) const;
     // policy:  "KEEPREF" | "DELREF" | "ACKED" 返回值：每个id的情况 1 删除， -1 不存在， 2 确认但未删除
@@ -437,9 +444,9 @@ private:
 #define SERVER_HEARTBEAT_RENEW_SECONDS 10           // 存活 key 的续期间隔（秒），必须显著小于 TTL，留出容错
 
 #define USER_OFFLINE_MESSAGE_STREAM "offlinestream_" // 用户离线消息队列 + uid
-#define GROUP_OFFLINE_MESSAGE_STREAM "offlinestream_group_" // 群聊用户离线消息队列 + uid
+// #define GROUP_OFFLINE_MESSAGE_STREAM ⚠ 群聊用户离线消息队列 + uid 废弃,把消息直接推送到用户的离线消息队列
 #define USER_XGROUP_NAME "userxgroup_" // 用户聊天消息消费组 + uid
 
 #define USER_FRIEND_SET "userfriendset_" // 用户好友集合 + uid --- uid->(uid1,uid2...)
-
+#define CHAT_GROUP_PERFIX "chatgroup_" // 群聊编号前缀 + uid（群聊id）
 #endif //GATESERVER_REDISMANAGER_BOOST_H

@@ -359,3 +359,23 @@ net::awaitable<int> Mysql_boost::changeUserInfo(uint64_t uid, std::optional<std:
 {
     co_return co_await callMysqlSpWithoutResult("CALL update_user_info(?, ?, ?, ?, ?, @error)", uid, name, desc, icon, sex);
 }
+
+net::awaitable<MysqlResult<std::uint64_t> > Mysql_boost::createChatGroup(std::string group_name, std::uint64_t owner_id, std::string avatar_url, std::uint32_t max_members, std::string announcement)
+{
+    co_return co_await callMysqlSpWithResult("CALL update_user_info(?, ?, ?, ?, ?, @result, @error)", group_name, avatar_url, owner_id, max_members, announcement);
+}
+
+net::awaitable<int> Mysql_boost::addGroupMember(std::uint64_t group_id, std::uint64_t uid, std::uint64_t operator_id)
+{
+    co_return co_await callMysqlSpWithoutResult("CALL add_group_member(?, ?, ?, @error)", group_id, uid, operator_id);
+}
+
+net::awaitable<int> Mysql_boost::kickGroupMember(std::uint64_t group_id, std::uint64_t uid, std::uint64_t operator_id)
+{
+    co_return co_await callMysqlSpWithoutResult("CALL kick_group_member(?, ?, ?, @error)", group_id, uid, operator_id);
+}
+
+net::awaitable<int> Mysql_boost::dismissGroup(std::uint64_t group_id, std::uint64_t operator_id)
+{
+    co_return co_await callMysqlSpWithoutResult("CALL dismiss_group(?, ?, @error)", group_id, operator_id);
+}

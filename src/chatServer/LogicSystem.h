@@ -64,7 +64,10 @@ private:
     net::awaitable<void> delFriendHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     net::awaitable<void> setFriendRemarkhandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     net::awaitable<void> changeUserInfoHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
-
+    net::awaitable<void> createChatGroupHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    net::awaitable<void> chatGroupAddMembersHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    net::awaitable<void> chatGroupKickMemberHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    net::awaitable<void> chatGroupDismiss(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
 
     [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);
     [[nodiscard]] static bool GrpcAuthFriendRequestAndNotifyToOther(std::uint64_t sender_uid, std::uint64_t add_friend_request_id, int state, const std::string& user_ip); // FriendApplyStatus
