@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
         {
             if (error)
             {
-                spdlog::error("error at signals cache");
+                SPDLOG_ERROR("error at signals cache");
                 return;
             }
             ioc.stop();
@@ -38,22 +38,22 @@ int main(int argc, char *argv[])
         // 预热一次性依赖：MySQL 连接池在构造时同步建立多条 SSL 连接（冷启动可达数秒），
         // Redis 池与 gRPC 通道同理。若不预热，这些开销会落在首个请求的处理路径上，
         // 既拉长首请求耗时，也让它逼近连接超时窗口
-        spdlog::info("Gate Server warming up dependencies...");
+        SPDLOG_INFO("Gate Server warming up dependencies...");
         ConfigManager::GetInstance(); // 配置已在上文读取，此处保证初始化顺序清晰
         MySqlManager::GetInstance();
         // 协程版 Redis：自带 io_context + 单线程，HTTP 工作线程上的协程会自动切到该线程执行命令
         RedisManager::GetInstance().init();
         StatusGrpcClient::GetInstance();
         VerifyGrpcClient::GetInstance();
-        spdlog::info("Gate Server dependencies ready");
+        SPDLOG_INFO("Gate Server dependencies ready");
 
         std::make_shared<CServer>(ioc, port)->start();
-        spdlog::info("Gate Server start and listen on port: {}", port);
+        SPDLOG_INFO("Gate Server start and listen on port: {}", port);
         ioc.run();
     }
     catch (std::exception &exp)
     {
-        spdlog::error("Gate Server start error: {}", exp.what());
+        SPDLOG_ERROR("Gate Server start error: {}", exp.what());
         return EXIT_FAILURE;
     }
 }

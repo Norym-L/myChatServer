@@ -19,7 +19,7 @@ void CServer::start()
         if (ec)
         {
             // 本次 accept 失败：记录后继续监听
-            spdlog::warn("[CServer] CServer link error: {} , create a new link", ec.what());
+            SPDLOG_WARN("[CServer] CServer link error: {} , create a new link", ec.what());
         }
         else
         {
@@ -30,7 +30,7 @@ void CServer::start()
             }
             catch (std::exception &exp)
             {
-                spdlog::error("[CServer] CServer new connection start error: {}", exp.what());
+                SPDLOG_ERROR("[CServer] CServer new connection start error: {}", exp.what());
             }
         }
 
@@ -43,7 +43,7 @@ void CServer::start()
         }
         catch (std::exception &exp)
         {
-            spdlog::error("[CServer] CServer re-accept error: {}", exp.what());
+            SPDLOG_ERROR("[CServer] CServer re-accept error: {}", exp.what());
         }
     });
 }

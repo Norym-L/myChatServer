@@ -29,30 +29,39 @@ LogicSystem::~LogicSystem()
     m_messageChannel.close();
     m_workGuard.reset();
     m_ioContext.stop();
-    if (m_workThread.joinable())
+    for (auto& t: m_ioTreads)
     {
-        m_workThread.join();
+        if (t.joinable())
+        {
+            t.join();
+        }
     }
 }
 
 LogicSystem::LogicSystem()
     : m_workGuard(net::make_work_guard(m_ioContext)),
-      m_messageChannel(m_ioContext, 10)
+      m_messageChannel(m_ioContext, 1000)
 {
     m_selfServerName = ResolveSelfSection(ConfigManager::GetInstance());
     registerCallBacks();
-    net::co_spawn(m_ioContext, dealMessage(),
-                  [](const std::exception_ptr& ep)
-                      {
-                          if (ep)
+    for (auto i = 0; i < 100; ++i) // 200 并发
+    {
+        net::co_spawn(m_ioContext, dealMessage(),
+                      [](const std::exception_ptr& ep)
                           {
-                              spdlog::error("[logic system] message loop exited with error: {}", Exception_ptr_to_string(ep));
-                          }
-                      });
-    m_workThread = std::thread([this]()
-        {
-            m_ioContext.run();
-        });
+                              if (ep)
+                              {
+                                  SPDLOG_ERROR("[logic system] message loop exited with error: {}", Exception_ptr_to_string(ep));
+                              }
+                          });
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        m_ioTreads.emplace_back([this]()
+            {
+                m_ioContext.run();
+            });
+    }
 }
 
 
@@ -62,8 +71,8 @@ void LogicSystem::postMessageToQueue(const std::shared_ptr<LogicNode>& logic_nod
     boost::system::error_code ec;
     if (!m_messageChannel.try_send(ec, logic_node))
     {
-        spdlog::warn("[logic system] the message queue is full, drop message id: {}, error: {}",
-                     logic_node->receviceNode->messageId, ec.message());
+        SPDLOG_WARN("[logic system] the message queue is full, drop message id: {}, error: {}",
+                    logic_node->receviceNode->messageId, ec.message());
     }
 }
 
@@ -80,7 +89,7 @@ net::awaitable<void> LogicSystem::RemoveOnlineKey(const std::uint64_t uid)
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[logic system] remove online key failed, uid: {}, error: {}", uid, e.what());
+        SPDLOG_WARN("[logic system] remove online key failed, uid: {}, error: {}", uid, e.what());
     }
 }
 
@@ -97,7 +106,7 @@ net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::u
     catch (const std::exception& e)
     {
         // Redis 不可用时不能挡住登录：继续回落数据库
-        spdlog::warn("[logic] get base info from redis failed, error: {}", e.what());
+        SPDLOG_WARN("[logic] get base info from redis failed, error: {}", e.what());
     }
 
     // 数据库查询
@@ -114,7 +123,7 @@ net::awaitable<std::shared_ptr<UserInfo> > LogicSystem::GetBaseInfo(const std::u
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[logic][LogicSystem::getBaseInfo] Redis insert error: {}", e.what());
+        SPDLOG_WARN("[logic][LogicSystem::getBaseInfo] Redis insert error: {}", e.what());
     }
     co_return std::make_shared<UserInfo>(info);
 }
@@ -131,7 +140,7 @@ net::awaitable<void> LogicSystem::dealMessage()
         catch (const boost::system::system_error& e)
         {
             // channel 已关闭（进程退出），消费协程结束
-            spdlog::debug("[logic system] dealMessage() stop: {}", e.what());
+            SPDLOG_DEBUG("[logic system] dealMessage() stop: {}", e.what());
             co_return;
         }
 
@@ -139,7 +148,7 @@ net::awaitable<void> LogicSystem::dealMessage()
         const auto call_back_function = m_callbackFunctions.find(message_id);
         if (call_back_function == m_callbackFunctions.end())
         {
-            spdlog::warn("[logic system] dealMessage() unknow message id: {}", message_id);
+            SPDLOG_WARN("[logic system] dealMessage() unknow message id: {}", message_id);
             continue;
         }
 
@@ -155,9 +164,9 @@ net::awaitable<void> LogicSystem::dealMessage()
         catch (const std::exception& e)
         {
             // 单个请求失败不能拖垮整个消费循环
-            spdlog::error("[logic system] dealMessage() handle message id: {} failed, error: {}", message_id, e.what());
+            SPDLOG_ERROR("[logic system] dealMessage() handle message id: {} failed, error: {}", message_id, e.what());
         }
-        spdlog::info("[logic system] dealMessage() handle message id: {}", message_id);
+        SPDLOG_INFO("[logic system] dealMessage() handle message id: {}", message_id);
     }
 }
 
@@ -274,12 +283,12 @@ net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& 
     std::uint64_t uid{0};
     if (!uid_value.isString() || !uid_codec::ParseUid(uid_value.asString(), uid))
     {
-        spdlog::debug("[logic system] login with invalid uid: {}", root["uid"].asString());
+        SPDLOG_DEBUG("[logic system] login with invalid uid: {}", root["uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         co_return;
     }
 
-    spdlog::debug("[logic system] user login, id: {}, token: {}", uid, token);
+    SPDLOG_DEBUG("[logic system] user login, id: {}, token: {}", uid, token);
 
     const std::string uid_str = std::to_string(uid);
     auto& redis = RedisManager::GetInstance();
@@ -292,15 +301,15 @@ net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& 
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[logic system] get token from redis failed, uid: {}, error: {}", uid, e.what());
+        SPDLOG_WARN("[logic system] get token from redis failed, uid: {}, error: {}", uid, e.what());
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         co_return;
     }
     if (!token_value)
     {
         // 该 uid 在 Redis 里没有 token：要么 StatusServer 写入失败，要么客户端回传的 uid 与网关下发的不一致
-        spdlog::warn("[logic system] token not found in redis, key: {}, client uid: {}",
-                     USER_TOKEN_PERFIX + uid_str, uid);
+        SPDLOG_WARN("[logic system] token not found in redis, key: {}, client uid: {}",
+                    USER_TOKEN_PERFIX + uid_str, uid);
         return_value["error"] = ErrorCode::USER_UID_INVALID;
         co_return;
     }
@@ -324,7 +333,7 @@ net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& 
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[logic system] check friend set failed, uid: {}, error: {}", uid, e.what());
+        SPDLOG_WARN("[logic system] check friend set failed, uid: {}, error: {}", uid, e.what());
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         co_return;
     }
@@ -349,7 +358,7 @@ net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& 
     if (!user_info)
     {
         // Redis 缓存未命中且 MySQL 也查不到该 uid（MySqlDao 查询异常时同样返回空）
-        spdlog::warn("[logic system] base info not found, uid: {}", uid);
+        SPDLOG_WARN("[logic system] base info not found, uid: {}", uid);
         return_value["error"] = ErrorCode::USER_UID_INVALID;
         co_return;
     }
@@ -380,35 +389,21 @@ net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& 
     return_value["error"] = ErrorCode::SUCCESS;
 }
 
-net::awaitable<void> LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& /*message_data*/) const
+net::awaitable<void> LogicSystem::heartbeatHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
-    Json::Value return_value;
-    Defer defer([this, &return_value, session]()
-        {
-            (void) this;
-            const std::string return_str = return_value.toStyledString();
-            session->send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_HEART_BEAT_RSP);
-        });
+    HANDLER_PREFIX(MESSAGE_HEART_BEAT_RSP)
 
     const std::uint64_t uid = session->getUserId();
-    if (uid == 0)
-    {
-        // 未登录（尚未绑定 uid）的 session 不允许续期，避免为匿名连接刷新在线状态
-        spdlog::warn("[logic system] heartbeat before login, session: {}", session->getSessionId());
-        return_value["error"] = ErrorCode::USER_UID_INVALID;
-        co_return;
-    }
 
     // 续期在线状态 key：30 秒内没有再收到心跳，key 自动过期，isUserOnLine 即判定用户离线
     const auto ip_key = USER_IP_PERFIX + std::to_string(uid);
     try
     {
-        co_await RedisManager::GetInstance().set(ip_key, m_selfServerName);
-        co_await RedisManager::GetInstance().expire(ip_key, HEART_BEAT_EXPIRE_SECONDS);
+        co_await RedisManager::GetInstance().set(ip_key, m_selfServerName, HEART_BEAT_EXPIRE_SECONDS);
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[logic][LogicSystem::heartbeatHandler] Redis insert error, uid: {}, error: {}", uid, e.what());
+        SPDLOG_WARN("[logic][LogicSystem::heartbeatHandler] Redis insert error, uid: {}, error: {}", uid, e.what());
         return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
         co_return;
     }
@@ -424,7 +419,7 @@ net::awaitable<void> LogicSystem::searchUserHandler(const std::shared_ptr<CSessi
     const Json::Value& search_value = root["uid"];
     const auto user_name_or_uid = search_value.isString() ? search_value.asString() : std::string(); // 可能是 uid 也有可能是 用户名
 
-    spdlog::debug("[logic system] user search, search value is: {}", user_name_or_uid);
+    SPDLOG_DEBUG("[logic system] user search, search value is: {}", user_name_or_uid);
 
     std::uint64_t uid{};
     const auto [ptr, ec] = std::from_chars(
@@ -477,7 +472,7 @@ net::awaitable<void> LogicSystem::sendFriendRequestHandler(const std::shared_ptr
     if (!uid_codec::ParseUid(root["uid"].asString(), form_uid) ||
         !uid_codec::ParseUid(root["to_uid"].asString(), to_uid))
     {
-        spdlog::debug("[logic system] add friend request, parse uid failed, str is {} and {}", root["uid"].asString(), root["to_uid"].asString());
+        SPDLOG_DEBUG("[logic system] add friend request, parse uid failed, str is {} and {}", root["uid"].asString(), root["to_uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         co_return;
     }
@@ -486,7 +481,7 @@ net::awaitable<void> LogicSystem::sendFriendRequestHandler(const std::shared_ptr
         return_value["error"] = ErrorCode::USER_UID_INVALID;
         co_return;
     }
-    spdlog::debug("[logic system] add friend request, from {} to {}", form_uid, to_uid);
+    SPDLOG_DEBUG("[logic system] add friend request, from {} to {}", form_uid, to_uid);
     const std::string verify_info = root["verify_info"].asString();
     const std::string remark = root["remark"].asString();
 
@@ -496,7 +491,7 @@ net::awaitable<void> LogicSystem::sendFriendRequestHandler(const std::shared_ptr
         if (code == -1 || code == -2) // 这里拦截用户不存在
         {
             return_value["error"] = ErrorCode::USER_UID_INVALID;
-            spdlog::warn("[LogicSystem::sendFriendRequestHandler] recvive a unexist uid form_uid: {} to_uid: {}", form_uid, to_uid);
+            SPDLOG_WARN("[LogicSystem::sendFriendRequestHandler] recvive a unexist uid form_uid: {} to_uid: {}", form_uid, to_uid);
         }
         else if (code == -3)
         {
@@ -533,7 +528,7 @@ net::awaitable<void> LogicSystem::sendFriendRequestHandler(const std::shared_ptr
             co_return;
         }
         session_other->sendAuthFriendRequest(add_frined_request_id);
-        spdlog::debug("LogicSystem::sendFriendRequestHandler send friend request to {}, friend request id {}", to_uid, add_frined_request_id);
+        SPDLOG_DEBUG("LogicSystem::sendFriendRequestHandler send friend request to {}, friend request id {}", to_uid, add_frined_request_id);
         co_return;
     }
     (void) GrpcSendFriendRequestToOther(add_frined_request_id, to_uid, *user_ip);
@@ -546,7 +541,7 @@ net::awaitable<void> LogicSystem::syncFriendRequestListHandler(const std::shared
     std::uint64_t uid{};
     if (!uid_codec::ParseUid(root["uid"].asString(), uid))
     {
-        spdlog::debug("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
+        SPDLOG_DEBUG("[logic system] sync friend request list, parse uid failed, str is {}", root["uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         co_return;
     }
@@ -555,7 +550,7 @@ net::awaitable<void> LogicSystem::syncFriendRequestListHandler(const std::shared
         return_value["error"] = ErrorCode::USER_UID_INVALID;
         co_return;
     }
-    spdlog::debug("[logic system] sync friend request list, uid: {}", uid);
+    SPDLOG_DEBUG("[logic system] sync friend request list, uid: {}", uid);
 
     const auto [error_code, mysql_value] = co_await MySqlManager::GetInstance().co_run().getFriendRequestList(uid);
 
@@ -591,11 +586,11 @@ net::awaitable<void> LogicSystem::checkIsUserOnlineHandler(const std::shared_ptr
     std::uint64_t uid{};
     if (!uid_codec::ParseUid(root["uid"].asString(), uid))
     {
-        spdlog::debug("[logic system] check user online request, parse uid failed, str is {}", root["uid"].asString());
+        SPDLOG_DEBUG("[logic system] check user online request, parse uid failed, str is {}", root["uid"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         co_return;
     }
-    spdlog::debug("[logic system] check user online request, check the uid {}", uid);
+    SPDLOG_DEBUG("[logic system] check user online request, check the uid {}", uid);
 
     const auto ip_key = USER_IP_PERFIX + std::to_string(uid);
     const auto isOnline = co_await RedisManager::GetInstance().get(ip_key);
@@ -611,7 +606,7 @@ net::awaitable<void> LogicSystem::authFriendRequestHandler(const std::shared_ptr
     std::uint64_t add_friend_request_id{};
     if (!uid_codec::ParseUid(root["add_friend_request_id"].asString(), add_friend_request_id))
     {
-        spdlog::debug("[logic system] authFriendRequestHandler, parse add_friend_request_id failed, str is {}", root["add_friend_request_id"].asString());
+        SPDLOG_DEBUG("[logic system] authFriendRequestHandler, parse add_friend_request_id failed, str is {}", root["add_friend_request_id"].asString());
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         co_return;
     }
@@ -622,7 +617,7 @@ net::awaitable<void> LogicSystem::authFriendRequestHandler(const std::shared_ptr
         return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
         co_return;
     }
-    spdlog::debug("[logic system] authFriendRequestHandler, id: {} state: {}", add_friend_request_id, state);
+    SPDLOG_DEBUG("[logic system] authFriendRequestHandler, id: {} state: {}", add_friend_request_id, state);
     const auto [code, sender_uid] = co_await MySqlManager::GetInstance().co_run().handleFriendRequest(add_friend_request_id, session->getUserId(), static_cast<FriendApplyStatus>(state));
     if (code != 0)
     {
@@ -664,7 +659,7 @@ net::awaitable<void> LogicSystem::authFriendRequestHandler(const std::shared_ptr
             co_return;
         }
         session_other->sendFriendRequestResult(add_friend_request_id, state);
-        spdlog::debug("LogicSystem::authFriendRequestHandler send auth friend request to {}, status {}", sender_uid, state);
+        SPDLOG_DEBUG("LogicSystem::authFriendRequestHandler send auth friend request to {}, status {}", sender_uid, state);
         co_return;
     }
 
@@ -732,7 +727,7 @@ net::awaitable<void> LogicSystem::syncUserFriendList(const std::shared_ptr<CSess
 {
     HANDLER_PREFIX(MESSAGE_SYNC_FRIEND_LIST_RSP)
 
-    const auto friend_list_only_uid_and_remark = MySqlManager::GetInstance().getUserFriendList(session->getUserId());
+    const auto [_, friend_list_only_uid_and_remark] = co_await MySqlManager::GetInstance().co_run().getUserFriendList(session->getUserId());
 
     for (const auto& [remark, uid]: friend_list_only_uid_and_remark)
     {
@@ -850,7 +845,6 @@ net::awaitable<void> LogicSystem::setFriendRemarkhandler(const std::shared_ptr<C
 {
     HANDLER_PREFIX(MESSAGE_SET_FRIEND_REMARK_RSP)
 
-    return_value["id"] = root["id"]; // 客户端发送的信息编号
     std::uint64_t friend_uid{};
     if (!uid_codec::ParseUid(root["friend_uid"].asString(), friend_uid))
     {
@@ -878,7 +872,6 @@ net::awaitable<void> LogicSystem::changeUserInfoHandler(const std::shared_ptr<CS
 {
     HANDLER_PREFIX(MESSAGE_CHANGE_USER_INFO_RSP)
 
-    return_value["id"] = root["id"]; // 客户端发送的信息编号
     std::optional<std::string> name = std::nullopt;
     std::optional<std::string> desc = std::nullopt;
     std::optional<std::string> icon = std::nullopt;
@@ -918,7 +911,7 @@ bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_re
     const auto rsp = ChatGrpcClient::GetInstance().addFriend(user_ip, req);
     if (rsp.error() != 0)
     {
-        spdlog::warn("LogicSystem::GrpcSendFriendRequestToOther send grpc error, error: {}", rsp.error());
+        SPDLOG_WARN("LogicSystem::GrpcSendFriendRequestToOther send grpc error, error: {}", rsp.error());
         return false;
     }
     return true;
@@ -933,7 +926,7 @@ bool LogicSystem::GrpcAuthFriendRequestAndNotifyToOther(const std::uint64_t send
     const auto rsp = ChatGrpcClient::GetInstance().replyFriend(user_ip, req);
     if (rsp.error() != 0)
     {
-        spdlog::warn("LogicSystem::GrpcAuthFriendRequestAndNotifyToOther send grpc error, error: {}", rsp.error());
+        SPDLOG_WARN("LogicSystem::GrpcAuthFriendRequestAndNotifyToOther send grpc error, error: {}", rsp.error());
         return false;
     }
     return true;
@@ -946,7 +939,7 @@ bool LogicSystem::GrpcNotifyReceiveMessageToOther(const std::uint64_t to_uid, co
     const auto rsp = ChatGrpcClient::GetInstance().notifyChatMessage(user_ip, req);
     if (rsp.error() != 0)
     {
-        spdlog::warn("LogicSystem::GrpcNotifyReceiveMessageToOther send grpc error, error: {}", rsp.error());
+        SPDLOG_WARN("LogicSystem::GrpcNotifyReceiveMessageToOther send grpc error, error: {}", rsp.error());
         return false;
     }
     return true;
@@ -993,7 +986,7 @@ net::awaitable<std::vector<std::shared_ptr<UserInfo> > > LogicSystem::SearchUser
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[logic system] get user base info by name from redis failed, key: {}, error: {}", base_key, e.what());
+        SPDLOG_WARN("[logic system] get user base info by name from redis failed, key: {}, error: {}", base_key, e.what());
     }
 
     // 查数据库

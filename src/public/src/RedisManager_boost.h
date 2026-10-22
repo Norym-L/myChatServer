@@ -90,7 +90,7 @@ public:
     [[nodiscard]] net::awaitable<bool> exists(std::string key);
     [[nodiscard]] net::awaitable<bool> expire(std::string key, std::int64_t seconds);
     // key - value
-    net::awaitable<void> set(std::string key, std::string value);
+    net::awaitable<void> set(std::string key, std::string value, std::int64_t ex = 7 * 24 * 60 * 60);
     [[nodiscard]] net::awaitable<std::optional<std::string> > get(std::string key);
     // key - h_key - value
     [[nodiscard]] net::awaitable<int64_t> hSet(std::string key, std::string field, std::string value);
@@ -150,6 +150,13 @@ private:
     }
 
     [[nodiscard]] bool initialized() const noexcept { return m_connection != nullptr; }
+
+    // 所有redis连接走独立串行执行
+    template<class ExecOp>
+    net::awaitable<void> execOnRedisStrand(ExecOp&& exec_op) const
+    {
+        co_return co_await net::co_spawn(m_connection->get_executor(), std::forward<ExecOp>(exec_op), net::use_awaitable);
+    }
 
     template<class ReturnType, class... Args>
     net::awaitable<ReturnType> redisCall(Args&&... args)
@@ -215,7 +222,8 @@ private:
         co_await redisCallRangeWithoutReturnOnRedisThread(std::move(cmd), args);
     }
 
-    // ---- 以下 *OnRedisThread 版本只能在 Redis 连接所在的线程上执行 ----
+    // ---- 以下 *OnRedisThread 版本对调用线程没有要求：exec 统一经
+    // execOnRedisStrand 派发到连接自己的 strand 上发起 ----
 
     template<class ReturnType, class... Args>
     net::awaitable<ReturnType> redisCallOnRedisThread(Args&&... args)
@@ -229,7 +237,10 @@ private:
         redis::response<ReturnType> resp;
         try
         {
-            co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+            co_await execOnRedisStrand([&]() -> net::awaitable<void>
+                {
+                    co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+                });
         }
         catch (const boost::system::system_error& e)
         {
@@ -254,7 +265,10 @@ private:
         redis::response<ReturnType> resp;
         try
         {
-            co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+            co_await execOnRedisStrand([&]() -> net::awaitable<void>
+                {
+                    co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+                });
         }
         catch (const boost::system::system_error& e)
         {
@@ -279,8 +293,10 @@ private:
         redis::response<ReturnType> resp;
         try
         {
-            co_await m_connection->async_exec(req, resp,
-                                              net::cancel_after(std::chrono::seconds(5)));
+            co_await execOnRedisStrand([&]() -> net::awaitable<void>
+                {
+                    co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+                });
         }
         catch (const boost::system::system_error& e)
         {
@@ -303,7 +319,10 @@ private:
         req.push(std::forward<Args>(args)...);
         try
         {
-            co_await m_connection->async_exec(req, redis::ignore, net::cancel_after(std::chrono::seconds(5)));
+            co_await execOnRedisStrand([&]() -> net::awaitable<void>
+                {
+                    co_await m_connection->async_exec(req, redis::ignore, net::cancel_after(std::chrono::seconds(5)));
+                });
         }
         catch (const boost::system::system_error& e)
         {
@@ -322,7 +341,10 @@ private:
         req.push_range(cmd, std::begin(args), std::end(args));
         try
         {
-            co_await m_connection->async_exec(req, redis::ignore, net::cancel_after(std::chrono::seconds(5)));
+            co_await execOnRedisStrand([&]() -> net::awaitable<void>
+                {
+                    co_await m_connection->async_exec(req, redis::ignore, net::cancel_after(std::chrono::seconds(5)));
+                });
         }
         catch (const boost::system::system_error& e)
         {

@@ -26,7 +26,7 @@ ConfigManager::ConfigManager()
     }
 
     s_configPath = config_path.string();
-    spdlog::info("[ConfigManager] Config path: {}", config_path.string());
+    SPDLOG_INFO("[ConfigManager] Config path: {}", config_path.string());
 
     boost::property_tree::ptree ptree;
     boost::property_tree::read_ini(config_path.string(), ptree);
@@ -50,10 +50,10 @@ ConfigManager::ConfigManager()
 
     for (const auto &[name, config]: m_configMap)
     {
-        spdlog::debug("[ConfigManager] [{}]", name);
+        SPDLOG_DEBUG("[ConfigManager] [{}]", name);
         for (const auto &[key, value]: config.m_sectionDatas)
         {
-            spdlog::debug("[ConfigManager] {}={}", key, value);
+            SPDLOG_DEBUG("[ConfigManager] {}={}", key, value);
         }
     }
 }
@@ -111,7 +111,7 @@ void ConfigManager::initFromArgs(const int argc, char *argv[])
             continue;
         }
 
-        spdlog::warn("[ConfigManager] ignore malformed argument: {}", arg);
+        SPDLOG_WARN("[ConfigManager] ignore malformed argument: {}", arg);
     }
 }
 

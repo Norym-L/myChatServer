@@ -172,19 +172,19 @@ private:
                 !out_result.rows().at(0).empty())
             {
                 int ret_code = static_cast<int>(out_result.rows().at(0).at(0).as_int64());
-                spdlog::info("[MySqlDao] SP return code: {}", ret_code);
+                SPDLOG_INFO("[MySqlDao] SP return code: {}", ret_code);
                 return ret_code;
             }
             return -11;
         }
         catch (const mysql::error_with_diagnostics& e)
         {
-            spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-            spdlog::error("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
+            SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
         }
         catch (const std::exception& e)
         {
-            spdlog::error("[MySqlDao] Error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         }
 
         if (connection)
@@ -232,7 +232,7 @@ private:
                     // 都会抛 std::invalid_argument，把真实错误码吞成 -11，因此必须先判型。
                     if (row.at(0).is_null())
                     {
-                        spdlog::debug("[MySqlDao] request_id is NULL, error_code: {}", error_code);
+                        SPDLOG_DEBUG("[MySqlDao] request_id is NULL, error_code: {}", error_code);
                         return error_code != 0 ? error_code : -11;
                     }
                     if (row.at(0).is_uint64())
@@ -248,7 +248,7 @@ private:
                         return error_code != 0 ? error_code : -11;
                     }
 
-                    spdlog::debug("[MySqlDao] request_id: {}, error_code: {}", request_id, error_code);
+                    SPDLOG_DEBUG("[MySqlDao] request_id: {}, error_code: {}", request_id, error_code);
                     return error_code;
                 }
             }
@@ -256,12 +256,12 @@ private:
         }
         catch (const mysql::error_with_diagnostics& e)
         {
-            spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-            spdlog::error("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
+            SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
         }
         catch (const std::exception& e)
         {
-            spdlog::error("[MySqlDao] Error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         }
 
         if (connection)

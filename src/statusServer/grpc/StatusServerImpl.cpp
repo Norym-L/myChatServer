@@ -29,7 +29,7 @@ std::optional<std::string> redisGet(const std::string& key)
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[status server] redis get failed, key: {}, error: {}", key, e.what());
+        SPDLOG_WARN("[status server] redis get failed, key: {}, error: {}", key, e.what());
         return std::nullopt;
     }
 }
@@ -42,7 +42,7 @@ std::optional<std::string> redisHGet(const std::string& key, const std::string& 
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[status server] redis hget failed, key: {}, field: {}, error: {}", key, field, e.what());
+        SPDLOG_WARN("[status server] redis hget failed, key: {}, field: {}, error: {}", key, field, e.what());
         return std::nullopt;
     }
 }
@@ -55,7 +55,7 @@ bool redisExists(const std::string& key)
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[status server] redis exists failed, key: {}, error: {}", key, e.what());
+        SPDLOG_WARN("[status server] redis exists failed, key: {}, error: {}", key, e.what());
         return false;
     }
 }
@@ -69,7 +69,7 @@ bool redisSet(const std::string& key, const std::string& value)
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[status server] redis set failed, key: {}, error: {}", key, e.what());
+        SPDLOG_WARN("[status server] redis set failed, key: {}, error: {}", key, e.what());
         return false;
     }
 }
@@ -126,7 +126,7 @@ ChatServer StatusServerImpl::getChatServer()
     // 否则 /user_login 会因为分发不出聊天服而整体失败
     if (candidates.empty())
     {
-        spdlog::warn("[status server] no alive chat server registered in redis, fallback to all configured servers");
+        SPDLOG_WARN("[status server] no alive chat server registered in redis, fallback to all configured servers");
         for (auto& server: m_servers | std::views::values)
         {
             candidates.push_back(&server);
@@ -154,7 +154,7 @@ ChatServer StatusServerImpl::getChatServer()
 
     if (min_server == nullptr)
     {
-        spdlog::error("no available chat server to return");
+        SPDLOG_ERROR("no available chat server to return");
         throw std::runtime_error("no available chat server to return");
     }
 
@@ -169,7 +169,7 @@ Status StatusServerImpl::GetChatServer(grpc::ServerContext* context, const messa
     constexpr std::string_view prefix("status server has received: ");
     auto const& server = getChatServer();
 
-    spdlog::info("[status server] return a chat server that name: {}, at {}:{}", server.name, server.host, server.port);
+    SPDLOG_INFO("[status server] return a chat server that name: {}, at {}:{}", server.name, server.host, server.port);
     response->set_host(server.host);
     response->set_port(server.port);
     response->set_error(ErrorCode::SUCCESS);
@@ -207,6 +207,6 @@ void StatusServerImpl::InsertToken(const std::uint64_t uid, const std::string& t
     // 写入失败不能静默：token 没进 Redis 时，ChatServer 侧校验会一律返回 USER_UID_INVALID
     if (!redisSet(USER_TOKEN_PERFIX + std::to_string(uid), token))
     {
-        spdlog::error("[status server] failed to insert token into redis, uid: {}", uid);
+        SPDLOG_ERROR("[status server] failed to insert token into redis, uid: {}", uid);
     }
 }

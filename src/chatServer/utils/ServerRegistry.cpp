@@ -23,7 +23,7 @@ void ServerRegistry::start(boost::asio::io_context& io_context, std::string name
 {
     if (m_started.exchange(true))
     {
-        spdlog::warn("[ServerRegistry] start() called more than once, ignore");
+        SPDLOG_WARN("[ServerRegistry] start() called more than once, ignore");
         return;
     }
 
@@ -65,7 +65,7 @@ void ServerRegistry::stop()
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[ServerRegistry] unregister from redis failed, name: {}, error: {}", m_name, e.what());
+        SPDLOG_WARN("[ServerRegistry] unregister from redis failed, name: {}, error: {}", m_name, e.what());
     }
 }
 
@@ -99,15 +99,13 @@ boost::asio::awaitable<bool> ServerRegistry::publish()
         // 服务列表：字段常驻，不设 TTL，便于 StatusServer 按名字反查地址
         co_await redis.hSet(SERVER_LIST, m_name, m_address);
         // 存活标记：EX 30s，续期协程每 10s 刷新
-        co_await redis.set(m_heartbeatKey, m_address);
-        co_await redis.expire(m_heartbeatKey, HEART_BEAT_EXPIRE_SECONDS);
+        co_await redis.set(m_heartbeatKey, m_address, HEART_BEAT_EXPIRE_SECONDS);
         // 连接数：同样 EX 30s，实例死掉后自动消失，StatusServer 视为 0
-        co_await redis.set(m_countKey, std::to_string(m_connectionCount.load()));
-        co_await redis.expire(m_countKey, HEART_BEAT_EXPIRE_SECONDS);
+        co_await redis.set(m_countKey, std::to_string(m_connectionCount.load()), HEART_BEAT_EXPIRE_SECONDS);
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[ServerRegistry] publish to redis failed, name: {}, error: {}", m_name, e.what());
+        SPDLOG_WARN("[ServerRegistry] publish to redis failed, name: {}, error: {}", m_name, e.what());
         co_return false;
     }
     co_return true;
@@ -117,12 +115,11 @@ boost::asio::awaitable<void> ServerRegistry::publishCount()
 {
     try
     {
-        co_await RedisManager::GetInstance().set(m_countKey, std::to_string(m_connectionCount.load()));
-        co_await RedisManager::GetInstance().expire(m_countKey, HEART_BEAT_EXPIRE_SECONDS);
+        co_await RedisManager::GetInstance().set(m_countKey, std::to_string(m_connectionCount.load()), HEART_BEAT_EXPIRE_SECONDS);
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[ServerRegistry] publish connection count failed, name: {}, error: {}", m_name, e.what());
+        SPDLOG_WARN("[ServerRegistry] publish connection count failed, name: {}, error: {}", m_name, e.what());
     }
 }
 
@@ -137,7 +134,7 @@ boost::asio::awaitable<void> ServerRegistry::unregisterOnce()
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[ServerRegistry] unregister from redis failed, name: {}, error: {}", m_name, e.what());
+        SPDLOG_WARN("[ServerRegistry] unregister from redis failed, name: {}, error: {}", m_name, e.what());
     }
 }
 
@@ -146,7 +143,7 @@ boost::asio::awaitable<void> ServerRegistry::renewLoop()
     if (!co_await publish())
     {
         // 注册失败不阻断启动：续期循环会周期性重试，Redis 恢复后自动补上
-        spdlog::warn("[ServerRegistry] register self to redis failed, name: {}", m_name);
+        SPDLOG_WARN("[ServerRegistry] register self to redis failed, name: {}", m_name);
     }
 
     for (;;)
@@ -159,7 +156,7 @@ boost::asio::awaitable<void> ServerRegistry::renewLoop()
         catch (const boost::system::system_error& e)
         {
             // stop() 取消了定时器：退出续期循环
-            spdlog::debug("[ServerRegistry] renew loop stop, name: {}, error: {}", m_name, e.what());
+            SPDLOG_DEBUG("[ServerRegistry] renew loop stop, name: {}, error: {}", m_name, e.what());
             co_return;
         }
 
@@ -169,7 +166,7 @@ boost::asio::awaitable<void> ServerRegistry::renewLoop()
         }
         if (!co_await publish())
         {
-            spdlog::warn("[ServerRegistry] renew heartbeat failed, name: {}", m_name);
+            SPDLOG_WARN("[ServerRegistry] renew heartbeat failed, name: {}", m_name);
         }
     }
 }

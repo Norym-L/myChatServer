@@ -16,7 +16,7 @@ class TSingLeton
 protected:
     ~TSingLeton()
     {
-        spdlog::debug("[Singleton] singleton destruct");
+        SPDLOG_DEBUG("[Singleton] singleton destruct");
     }
 
 public:

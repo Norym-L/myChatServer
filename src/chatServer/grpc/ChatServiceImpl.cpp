@@ -15,7 +15,7 @@ Status ChatServiceImpl::NotifyAddFriend(ServerContext* context, const AddFriendR
     }
     session->sendAuthFriendRequest(request->addfriendrequestid());
     response->set_error(ErrorCode::SUCCESS);
-    spdlog::debug("ChatServiceImpl::NotifyAddFriend send add friend request to: {} request id: {}", request->touid(), request->addfriendrequestid());
+    SPDLOG_DEBUG("ChatServiceImpl::NotifyAddFriend send add friend request to: {} request id: {}", request->touid(), request->addfriendrequestid());
     return Status::OK;
 }
 
@@ -29,7 +29,7 @@ Status ChatServiceImpl::ReplyAddFriend(ServerContext* context, const message::Re
     }
     session->sendFriendRequestResult(request->addfriendrequestid(), request->state());
     response->set_error(ErrorCode::SUCCESS);
-    spdlog::debug("ChatServiceImpl::ReplyAddFriend send friend request reply to: {}", request->senderuid());
+    SPDLOG_DEBUG("ChatServiceImpl::ReplyAddFriend send friend request reply to: {}", request->senderuid());
     return Status::OK;
 }
 
@@ -43,7 +43,7 @@ Status ChatServiceImpl::NotifyChatMessage(ServerContext* context, const NotifyCh
     }
     session->notifyReceiveMessage();
     response->set_error(ErrorCode::SUCCESS);
-    spdlog::debug("ChatServiceImpl::ReplyAddFriend send friend request reply to: {}", request->touid());
+    SPDLOG_DEBUG("ChatServiceImpl::ReplyAddFriend send friend request reply to: {}", request->touid());
     return Status::OK;
 }
 

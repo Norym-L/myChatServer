@@ -18,7 +18,7 @@ GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string& email) const
     // 池关闭时会返回空连接，必须判空后再调用 stub
     if (stub == nullptr)
     {
-        spdlog::error("[VerifyGrpcClient] GetVerifyCode Error: no available connection");
+        SPDLOG_ERROR("[VerifyGrpcClient] GetVerifyCode Error: no available connection");
         reply.set_error(static_cast<int32_t>(ErrorCode::RPC_FAILED));
         return reply;
     }
@@ -31,7 +31,7 @@ GetVerifyRsp VerifyGrpcClient::getverifyCode(const std::string& email) const
     else
     {
         m_pool->returnConnection(std::move(stub));
-        spdlog::error("[VerifyGrpcClient] GetVerifyCode Error error_code: {}", status.error_code());
+        SPDLOG_ERROR("[VerifyGrpcClient] GetVerifyCode Error error_code: {}", status.error_code());
         reply.set_error(static_cast<int32_t>(ErrorCode::RPC_FAILED));
         return reply;
     }

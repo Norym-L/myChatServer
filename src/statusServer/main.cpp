@@ -50,10 +50,10 @@ static void RunServer()
     // BuildAndStart 失败时返回空指针，继续调用 Wait() 会空指针崩溃
     if (server == nullptr)
     {
-        spdlog::error("Status Server failed to build and start on {}", server_address);
+        SPDLOG_ERROR("Status Server failed to build and start on {}", server_address);
         return;
     }
-    spdlog::info("Status Server listening on {}", server_address);
+    SPDLOG_INFO("Status Server listening on {}", server_address);
 
     boost::asio::io_context io_context;
     boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
     }
     catch (std::exception &e)
     {
-        spdlog::error("Status Server start error: {}", e.what());
+        SPDLOG_ERROR("Status Server start error: {}", e.what());
         return EXIT_FAILURE;
     }
 }

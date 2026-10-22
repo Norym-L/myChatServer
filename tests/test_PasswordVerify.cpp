@@ -5,13 +5,13 @@
 int main()
 {
     std::string stored = PasswordVerify::hashPassword("123456");
-    spdlog::info("stored = {}", stored);
+    SPDLOG_INFO("stored = {}", stored);
 
     // 断言校验结果，失败时返回非 0
     const bool match = PasswordVerify::verifyPassword("123456", stored);
     const bool mismatch = PasswordVerify::verifyPassword("wrong", stored);
-    spdlog::info("verify result: {}", match);
-    spdlog::info("verify result: {}", mismatch);
+    SPDLOG_INFO("verify result: {}", match);
+    SPDLOG_INFO("verify result: {}", mismatch);
 
     if (!match || mismatch)
     {

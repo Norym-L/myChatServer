@@ -93,7 +93,7 @@ private:
     net::executor_work_guard<net::io_context::executor_type> m_workGuard;
     // 消息队列由 channel 承载：连接线程只做 try_send，逻辑线程串行地 co_await 消费
     net::experimental::concurrent_channel<void(boost::system::error_code, std::shared_ptr<LogicNode>)> m_messageChannel;
-    std::thread m_workThread;
+    std::vector<std::thread> m_ioTreads;
     std::string m_selfServerName;
     std::map<short, Function_CallBack> m_callbackFunctions;
 };
@@ -109,6 +109,7 @@ Defer defer([this, &return_value, session]()\
         const std::string return_str = return_value.toStyledString();\
         session->send(return_str.c_str(), return_str.size(), MessageType::message_type);\
     });\
+return_value["msgid"] = root["msgid"];\
 if (session->getUserId() == 0)\
 {\
     return_value["error"] = ErrorCode::USER_UID_INVALID;\
@@ -125,11 +126,7 @@ Defer defer([this, &return_value, session]()\
         (void) this;\
         const std::string return_str = return_value.toStyledString();\
         session->send(return_str.c_str(), return_str.size(), MessageType::message_type);\
-    });
-
-#define HANDLER_PREFIX_WITHOUT_RSP \
-Json::Reader reader;\
-Json::Value root;\
-reader.parse(message_data, root);
+    });\
+return_value["msgid"] = root["msgid"];
 
 #endif //GATESERVER_LOGICSYSTEM_H

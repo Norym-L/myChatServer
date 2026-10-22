@@ -17,7 +17,7 @@ net::awaitable<bool> RedisManager::registUser(const std::uint64_t uid, std::stri
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] user: {} register failed, error: {}", uid, e.what());
+        SPDLOG_WARN("[redis] user: {} register failed, error: {}", uid, e.what());
         co_return false;
     }
     co_return true;
@@ -40,16 +40,11 @@ net::awaitable<void> RedisManager::insert(const std::vector<std::shared_ptr<User
     }
     try
     {
-        co_await set(USER_BASE_INFO_BY_NAME + user_infos.front()->name, redis_root.toStyledString());
-        const auto success = co_await expire(USER_BASE_INFO_BY_NAME + user_infos.front()->name, ex);
-        if (!success)
-        {
-            spdlog::warn("[redis] redis insert user_info failed!");
-        }
+        co_await set(USER_BASE_INFO_BY_NAME + user_infos.front()->name, redis_root.toStyledString(), ex);
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis insert user_info failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis insert user_info failed, error: {}", e.what());
     }
 }
 
@@ -77,7 +72,7 @@ net::awaitable<std::optional<UserInfo> > RedisManager::getUserInfo(const std::ui
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[logic system] get user base info from redis failed, key: {}, error: {}", base_key, e.what());
+        SPDLOG_WARN("[logic system] get user base info from redis failed, key: {}, error: {}", base_key, e.what());
         co_return std::nullopt;
     }
     co_return std::nullopt;
@@ -93,8 +88,7 @@ net::awaitable<void> RedisManager::setUserBaseInfo(const std::uint64_t uid, cons
     root["icon"] = user_info.icon;
     root["uid"] = user_info.uid;
     root["sex"] = user_info.sex;
-    co_await set(USER_BASE_INFO + std::to_string(uid), root.toStyledString());
-    co_await expire(USER_BASE_INFO + std::to_string(uid), 24 * 60 * 60);
+    co_await set(USER_BASE_INFO + std::to_string(uid), root.toStyledString(), 24 * 60 * 60);
 }
 
 net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message message)
@@ -110,7 +104,7 @@ net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message 
     }
     catch (std::exception& e)
     {
-        spdlog::warn("[redis] redis insert message to offline failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis insert message to offline failed, error: {}", e.what());
     }
 }
 
@@ -122,7 +116,7 @@ net::awaitable<void> RedisManager::ackAndDelChatMessages(const std::uint64_t to_
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis ackAndDel chat message failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis ackAndDel chat message failed, error: {}", e.what());
     }
 }
 
@@ -137,7 +131,7 @@ net::awaitable<std::vector<chat_message::Message> > RedisManager::getMessageFrom
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis get message from offlien failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis get message from offlien failed, error: {}", e.what());
         co_return return_value;
     }
     if (stream_results.empty())
@@ -168,7 +162,7 @@ net::awaitable<std::int64_t> RedisManager::getPendingMessageCount(const std::uin
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis get pending message failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis get pending message failed, error: {}", e.what());
         co_return 0;
     }
     co_return pending_summary.totalCount;
@@ -183,7 +177,7 @@ net::awaitable<std::optional<std::string> > RedisManager::isUserOnLine(const std
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis check user online failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis check user online failed, error: {}", e.what());
         co_return std::nullopt;
     }
     co_return ip;
@@ -202,7 +196,7 @@ net::awaitable<bool> RedisManager::isFriend(const std::uint64_t online_uid, cons
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis check user is friend failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis check user is friend failed, error: {}", e.what());
         co_return false;
     }
     co_return is_friend;
@@ -228,7 +222,7 @@ net::awaitable<bool> RedisManager::addFriend(const std::uint64_t online_uid, con
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis add friend failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis add friend failed, error: {}", e.what());
         co_return false;
     }
     co_return success;
@@ -254,7 +248,7 @@ net::awaitable<bool> RedisManager::removeFriend(const std::uint64_t online_uid, 
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis remove friend failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis remove friend failed, error: {}", e.what());
         co_return false;
     }
     co_return success;
@@ -282,7 +276,7 @@ net::awaitable<bool> RedisManager::loadFriends(const std::uint64_t online_uid, c
     }
     catch (const std::exception& e)
     {
-        spdlog::warn("[redis] redis user load friends failed, error: {}", e.what());
+        SPDLOG_WARN("[redis] redis user load friends failed, error: {}", e.what());
         co_return false;
     }
     co_return success;
@@ -304,9 +298,9 @@ net::awaitable<bool> RedisManager::changeUserInfo(const uint64_t uid, const std:
     co_return true;
 }
 
-net::awaitable<void> RedisManager::set(std::string key, std::string value)
+net::awaitable<void> RedisManager::set(std::string key, std::string value, std::int64_t ex)
 {
-    co_return co_await redisCallWithoutReturn<>("SET", std::move(key), std::move(value));
+    co_return co_await redisCallWithoutReturn<>("SET", std::move(key), std::move(value), "EX", ex);
 }
 
 net::awaitable<std::optional<std::string> > RedisManager::get(std::string key)
@@ -403,8 +397,10 @@ net::awaitable<void> RedisManager::streamCreateGroup(std::string stream_name, st
     redis::response<std::string> resp;
     try
     {
-        co_await m_connection->async_exec(
-            req, resp, net::cancel_after(std::chrono::seconds(5)));
+        co_await execOnRedisStrand([&]() -> net::awaitable<void>
+            {
+                co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+            });
     }
     catch (const boost::system::system_error& e)
     {
@@ -440,7 +436,10 @@ net::awaitable<std::vector<StreamResult> > RedisManager::streamReadGroup(std::st
     redis::generic_response resp;
     try
     {
-        co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+        co_await execOnRedisStrand([&]() -> net::awaitable<void>
+            {
+                co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+            });
     }
     catch (const boost::system::system_error& e)
     {
@@ -461,8 +460,7 @@ net::awaitable<std::vector<StreamResult> > RedisManager::streamReadGroup(std::st
         if (t == redis::resp3::type::simple_error
             || t == redis::resp3::type::blob_error)
         {
-            throw std::runtime_error(
-                "XREADGROUP failed: " + nodes.front().value);
+            throw std::runtime_error("XREADGROUP failed: " + nodes.front().value);
         }
     }
     co_return Parse_xreadgroup_reply(resp);
@@ -492,7 +490,10 @@ net::awaitable<PendingSummary> RedisManager::streamPending(const std::string str
     redis::generic_response resp;
     try
     {
-        co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+        co_await execOnRedisStrand([&]() -> net::awaitable<void>
+            {
+                co_await m_connection->async_exec(req, resp, net::cancel_after(std::chrono::seconds(5)));
+            });
     }
     catch (const boost::system::system_error& e)
     {
@@ -577,11 +578,13 @@ void RedisManager::init(net::io_context& io_context)
 {
     if (m_connection)
     {
-        spdlog::warn("[redis] init() called more than once, ignore");
+        SPDLOG_WARN("[redis] init() called more than once, ignore");
         return;
     }
     m_ioContext = &io_context;
-    m_connection = std::make_shared<redis::connection>(io_context);
+    // 连接挂在自己的 strand 上：逻辑 io_context 有多条线程在跑时，连接内部的
+    // 读写任务与所有 async_exec 的发起都串行在这条 strand 上（连接非线程安全对象）
+    m_connection = std::make_shared<redis::connection>(net::make_strand(io_context));
     redis::config redis_config;
     auto& config = ConfigManager::GetInstance();
     redis_config.addr.port = config["Redis"]["port"];
@@ -591,8 +594,8 @@ void RedisManager::init(net::io_context& io_context)
     redis_config.database_index = 0;
     redis_config.use_ssl = false;
 
-    // async_run 会操作连接内部状态，必须在连接所在线程上发起
-    net::post(io_context, [connection = m_connection, redis_config = std::move(redis_config)]() mutable
+    // async_run 会操作连接内部状态，必须在连接自己的 strand 上发起
+    net::post(m_connection->get_executor(), [connection = m_connection, redis_config = std::move(redis_config)]() mutable
                   {
                       connection->async_run(redis_config, net::detached);
                   });
@@ -602,7 +605,7 @@ void RedisManager::init()
 {
     if (m_connection)
     {
-        spdlog::warn("[redis] init() called more than once, ignore");
+        SPDLOG_WARN("[redis] init() called more than once, ignore");
         return;
     }
     m_thread = std::thread([this]()

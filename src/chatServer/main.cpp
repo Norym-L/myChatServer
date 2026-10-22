@@ -29,6 +29,7 @@ int main(int argc, char* argv[])
         MySqlManager::GetInstance();
 
         auto& config = ConfigManager::GetInstance();
+        spdlog::default_logger()->set_level(static_cast<spdlog::level::level_enum>(std::stoi(config["LoggerLevel"]["default"])));
 
         const auto self_section = ResolveSelfSection(config);
 
@@ -51,7 +52,7 @@ int main(int argc, char* argv[])
         builder.AddListeningPort(server_addr, grpc::InsecureServerCredentials());
         builder.RegisterService(&grpc_serviec);
         std::unique_ptr<grpc::Server> grpc_server(builder.BuildAndStart());
-        spdlog::info("[{}<grpc_server>] listen on: {}", self_section, server_addr);
+        SPDLOG_INFO("[{}<grpc_server>] listen on: {}", self_section, server_addr);
 
         std::thread grpc_server_thread([&grpc_server]()
             {
@@ -75,10 +76,10 @@ int main(int argc, char* argv[])
         // serverheartbeat_<name> / logincount_<name> 带 30s TTL，由逻辑线程上的定时协程续期
         ServerRegistry::GetInstance().start(logic.getIoContext(),
                                             name, config[name]["host"] + ":" + config[name]["port"]);
-        spdlog::info("[{}] registered to redis, heartbeat key: {}", self_section,
-                     SERVER_HEARTBEAT_PREFIX + name);
+        SPDLOG_INFO("[{}] registered to redis, heartbeat key: {}", self_section,
+                    SERVER_HEARTBEAT_PREFIX + name);
 
-        spdlog::info("[{}] starting as {}, listen on port: {}", self_section, name, port);
+        SPDLOG_INFO("[{}] starting as {}, listen on port: {}", self_section, name, port);
         CServer server(io_context, port, name);
         io_context.run();
 
@@ -88,7 +89,7 @@ int main(int argc, char* argv[])
     }
     catch (const std::exception& e)
     {
-        spdlog::error("Chat Server start error: {}", e.what());
+        SPDLOG_ERROR("Chat Server start error: {}", e.what());
         return EXIT_FAILURE;
     }
 

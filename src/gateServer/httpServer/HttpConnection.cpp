@@ -49,11 +49,11 @@ void HttpConnection::start()
                 // 本端因超时主动关闭时，挂起的读会以 operation_aborted 结束，属预期行为，降级为 debug
                 if (self->m_beClosed)
                 {
-                    spdlog::debug("[HttpConnection] read aborted by local close: {}", ec.what());
+                    SPDLOG_DEBUG("[HttpConnection] read aborted by local close: {}", ec.what());
                 }
                 else
                 {
-                    spdlog::error("[HttpConnection] http read err: {}", ec.what());
+                    SPDLOG_ERROR("[HttpConnection] http read err: {}", ec.what());
                 }
                 return;
             }
@@ -62,7 +62,7 @@ void HttpConnection::start()
         }
         catch (std::exception &exp)
         {
-            spdlog::error("[HttpConnection] HttpConnection error: {}", exp.what());
+            SPDLOG_ERROR("[HttpConnection] HttpConnection error: {}", exp.what());
         }
     });
 }
@@ -84,7 +84,7 @@ void HttpConnection::checkDeadLine()
         if (!ec)
         {
             // 明确记录超时关闭，避免与真正的读写错误混淆
-            spdlog::warn("[HttpConnection] connection timeout, close socket");
+            SPDLOG_WARN("[HttpConnection] connection timeout, close socket");
             self->m_beClosed = true;
             boost::system::error_code ignore;
             self->m_socket.shutdown(tcp::socket::shutdown_both, ignore);
@@ -103,7 +103,7 @@ void HttpConnection::writeResponse()
         // 而客户端实际收不到响应（正是"两次都显示登录成功但第一次无效"的原因）
         if (ec)
         {
-            spdlog::warn("[HttpConnection] response write failed: {}", ec.what());
+            SPDLOG_WARN("[HttpConnection] response write failed: {}", ec.what());
         }
         boost::system::error_code ignore;
         self->m_socket.shutdown(tcp::socket::shutdown_send, ignore);
@@ -129,7 +129,7 @@ void HttpConnection::handleReq()
                           {
                               return;
                           }
-                          spdlog::error("[HttpConnection] handle request failed: {}", exception_to_string(ep));
+                          SPDLOG_ERROR("[HttpConnection] handle request failed: {}", exception_to_string(ep));
 
                           // 处理器异常时返回 500，而不是让客户端一直等到超时
                           http::response<http::dynamic_body> rsp;

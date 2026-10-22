@@ -15,7 +15,7 @@ CSession::CSession(boost::asio::io_context& io_context, CServer* server)
 
 CSession::~CSession()
 {
-    spdlog::info("[server] session destruct");
+    SPDLOG_INFO("[server] session destruct");
 }
 
 
@@ -37,15 +37,15 @@ void CSession::start()
                     {
                         if (e.code() != net::error::eof &&
                             e.code() != net::error::operation_aborted)
-                            spdlog::warn("[tcp session] read loop: {}", e.what());
+                            SPDLOG_WARN("[tcp session] read loop: {}", e.what());
                     }
                     catch (const std::exception& e)
                     {
-                        spdlog::error("[tcp session] read loop unexpected: {}", e.what());
+                        SPDLOG_ERROR("[tcp session] read loop unexpected: {}", e.what());
                     }
                     catch (...)
                     {
-                        spdlog::error("[tcp session] read loop unknown exception");
+                        SPDLOG_ERROR("[tcp session] read loop unknown exception");
                     }
                 }
                 self->close();
@@ -88,7 +88,7 @@ net::awaitable<void> CSession::readLoop()
         message_len = boost::asio::detail::socket_ops::network_to_host_short(message_len);
         if (message_id > MAX_ID_NUMBER || message_len > MAX_LENGTH) // message_len 为0也放行，保证心跳消息可以接收
         {
-            spdlog::warn("[tcp session] invalid head id={} len={}", message_id, message_len);
+            SPDLOG_WARN("[tcp session] invalid head id={} len={}", message_id, message_len);
             co_return;
         }
         const auto message = std::make_shared<ReceiveNode>(message_len, message_id);
@@ -109,7 +109,7 @@ void CSession::send(const char* message, const size_t len, const short message_i
     if (sendQueue_size > MAX_SEND_QUEUE_LEN)
     {
         // 队列积压说明对端不再取数据（TCP 背压），继续静默丢包会让客户端一直等响应；直接关闭会话
-        spdlog::warn("[tcp session] session[{}] send queue fulled, size is: {}, close session", m_sessionId, MAX_SEND_QUEUE_LEN);
+        SPDLOG_WARN("[tcp session] session[{}] send queue fulled, size is: {}, close session", m_sessionId, MAX_SEND_QUEUE_LEN);
         boost::system::error_code ec;
         m_socket.close(ec);
         return;
@@ -137,7 +137,7 @@ void CSession::handleWrite(const boost::system::error_code& error_code, std::sha
         {
             // 写失败说明连接已不可用：丢弃剩余队列并关闭 socket，避免继续向坏 socket 投递
             // （随后的读操作会因 socket 关闭而失败，由读回调负责 clearSession 清理会话登记）
-            spdlog::warn("[tcp session] handle write error: {}, drop {} pending message(s)", error_code.what(), m_sendQueue.size());
+            SPDLOG_WARN("[tcp session] handle write error: {}, drop {} pending message(s)", error_code.what(), m_sendQueue.size());
             std::queue<std::shared_ptr<SendNode> > empty_queue;
             std::swap(m_sendQueue, empty_queue);
             boost::system::error_code ec;
@@ -157,7 +157,7 @@ void CSession::handleWrite(const boost::system::error_code& error_code, std::sha
     }
     catch (std::exception& e)
     {
-        spdlog::warn("[tcp session] handle write error: {}", e.what());
+        SPDLOG_WARN("[tcp session] handle write error: {}", e.what());
     }
 }
 

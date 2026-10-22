@@ -68,13 +68,13 @@ net::awaitable<MysqlResult<bool> > Mysql_boost::checkIsAccountMatchEmail(std::st
     }
     catch (mysql::error_with_diagnostics& e)
     {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
         root.error_code = -11;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         root.error_code = -11;
     }
     co_return root;
@@ -96,7 +96,7 @@ net::awaitable<MysqlResult<bool> > Mysql_boost::updatePassword(std::uint64_t uid
         }
         if (result.affected_rows() == 0)
         {
-            spdlog::warn("[MySqlDao] update password affected 0 rows, uid: {}", uid);
+            SPDLOG_WARN("[MySqlDao] update password affected 0 rows, uid: {}", uid);
             root.error_code = -1; // 没有密码被更新
             root.value = false;
         }
@@ -109,13 +109,13 @@ net::awaitable<MysqlResult<bool> > Mysql_boost::updatePassword(std::uint64_t uid
     }
     catch (mysql::error_with_diagnostics& e)
     {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
         root.error_code = -11;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         root.error_code = -11;
     }
     co_return root;
@@ -148,13 +148,13 @@ net::awaitable<MysqlResult<bool> > Mysql_boost::checkIsPasswordMatchAccount(std:
     }
     catch (mysql::error_with_diagnostics& e)
     {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
         root.error_code = -11;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         root.error_code = -11;
     }
     co_return root;
@@ -191,13 +191,13 @@ net::awaitable<MysqlResult<std::optional<UserInfo> > > Mysql_boost::getUser(std:
     }
     catch (mysql::error_with_diagnostics& e)
     {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
         root.error_code = -11;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         root.error_code = -11;
     }
 
@@ -241,13 +241,13 @@ net::awaitable<MysqlResult<std::vector<UserInfo> > > Mysql_boost::getUser(std::s
     }
     catch (mysql::error_with_diagnostics& e)
     {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
         root.error_code = -11;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         root.error_code = -11;
     }
 
@@ -297,13 +297,13 @@ net::awaitable<MysqlResult<std::vector<ApplyInfo> > > Mysql_boost::getFriendRequ
     }
     catch (mysql::error_with_diagnostics& e)
     {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
         root.error_code = -11;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         root.error_code = -11;
     }
 
@@ -342,13 +342,13 @@ net::awaitable<MysqlResult<std::vector<UidAndRemarkInUserFriend> > > Mysql_boost
     }
     catch (mysql::error_with_diagnostics& e)
     {
-        spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-        spdlog::error("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
         root.error_code = -11;
     }
     catch (const std::exception& e)
     {
-        spdlog::error("[MySqlDao] Error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         root.error_code = -11;
     }
 

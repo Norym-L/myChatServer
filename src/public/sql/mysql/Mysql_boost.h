@@ -116,23 +116,23 @@ private:
                 const auto& field = out_result.rows().at(0).at(0);
                 if (field.is_null())
                 {
-                    spdlog::warn("[MySqlDao] SP did not set @error, defaulting to -1");
+                    SPDLOG_WARN("[MySqlDao] SP did not set @error, defaulting to -1");
                     co_return -1;
                 }
                 int ret_code = static_cast<int>(field.as_int64());
-                spdlog::info("[MySqlDao] SP return code: {}", ret_code);
+                SPDLOG_INFO("[MySqlDao] SP return code: {}", ret_code);
                 co_return ret_code;
             }
             co_return -11;
         }
         catch (const mysql::error_with_diagnostics& e)
         {
-            spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-            spdlog::error("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
+            SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
         }
         catch (const std::exception& e)
         {
-            spdlog::error("[MySqlDao] Error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         }
         co_return -11;
     }
@@ -160,7 +160,7 @@ private:
                 const auto& row = out_result.rows().at(0);
                 root.value = row.at(0).is_uint64() ? row.at(0).as_uint64() : 0;
                 root.error_code = row.at(1).is_int64() ? static_cast<int>(row.at(1).as_int64()) : -1;
-                spdlog::info("[MySqlDao] SP return code: {}", root.error_code);
+                SPDLOG_INFO("[MySqlDao] SP return code: {}", root.error_code);
                 co_return root;
             }
             root.error_code = -11;
@@ -168,12 +168,12 @@ private:
         }
         catch (const mysql::error_with_diagnostics& e)
         {
-            spdlog::error("[MySqlDao] MySQL error: {}", e.what());
-            spdlog::error("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
+            SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
         }
         catch (const std::exception& e)
         {
-            spdlog::error("[MySqlDao] Error: {}", e.what());
+            SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
         }
 
         root.error_code = -11;

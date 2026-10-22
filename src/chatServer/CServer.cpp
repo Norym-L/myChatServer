@@ -12,13 +12,13 @@
 CServer::CServer(boost::asio::io_context& io_context, const std::uint16_t port, std::string server_name)
     : m_ioContext(io_context), m_port(port), m_acceptor(io_context, tcp::endpoint(tcp::v4(), port)), m_name(std::move(server_name))
 {
-    spdlog::info("[{}] start success, listen on port: {}", getSelfServerName(), m_port);
+    SPDLOG_INFO("[{}] start success, listen on port: {}", getSelfServerName(), m_port);
     startAccept();
 }
 
 CServer::~CServer()
 {
-    spdlog::info("[{}] destroy listen on port: {}", getSelfServerName(), m_port);
+    SPDLOG_INFO("[{}] destroy listen on port: {}", getSelfServerName(), m_port);
 }
 
 void CServer::clearSession(const std::string& session_id)
@@ -58,7 +58,7 @@ void CServer::handleAccept(std::shared_ptr<CSession> new_session, const boost::s
     }
     else
     {
-        spdlog::error("[{}] session accept failed, error: {}", getSelfServerName(), error_code.what());
+        SPDLOG_ERROR("[{}] session accept failed, error: {}", getSelfServerName(), error_code.what());
     }
 
     startAccept();

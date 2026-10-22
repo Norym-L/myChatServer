@@ -177,3 +177,8 @@ foreach (TARGET_NAME GateServer StatusServer ChatServer)
         )
     endforeach ()
 endforeach ()
+
+# release模式不编译spdlog
+if (CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF)
+endif ()

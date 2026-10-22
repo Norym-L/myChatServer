@@ -71,7 +71,7 @@ LogicSystem::LogicSystem()
             [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
                 {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
-                spdlog::debug("[LogicSystem] receive body is {}", body_str);
+                SPDLOG_DEBUG("[LogicSystem] receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
                 Json::Value root;
                 Json::Reader reader;
@@ -81,7 +81,7 @@ LogicSystem::LogicSystem()
                 if (!parse_success ||
                     !src_root.isMember("email"))
                 {
-                    spdlog::debug("[LogicSystem] Failed to parse Json data!");
+                    SPDLOG_DEBUG("[LogicSystem] Failed to parse Json data!");
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -90,7 +90,7 @@ LogicSystem::LogicSystem()
 
                 auto email = src_root["email"].asString();
                 auto rsp = VerifyGrpcClient::GetInstance().getverifyCode(email);
-                spdlog::info("[LogicSystem] email is: {}", email);
+                SPDLOG_INFO("[LogicSystem] email is: {}", email);
                 root["error"] = rsp.error();
                 root["email"] = src_root["email"];
 #ifdef GATE_DEBUG
@@ -103,7 +103,7 @@ LogicSystem::LogicSystem()
                 }
                 catch (const std::exception& e)
                 {
-                    spdlog::error("[LogicSystem] /get_Verifycode get code from redis failed: {}", e.what());
+                    SPDLOG_ERROR("[LogicSystem] /get_Verifycode get code from redis failed: {}", e.what());
                     verify_code = "redis unavailable";
                 }
                 root["verify_code"] = verify_code;
@@ -118,7 +118,7 @@ LogicSystem::LogicSystem()
             [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
                 {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
-                spdlog::debug("[LogicSystem] /user_register receive body is {}", body_str);
+                SPDLOG_DEBUG("[LogicSystem] /user_register receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
 
                 Json::Reader reader;
@@ -133,7 +133,7 @@ LogicSystem::LogicSystem()
                     !src_root.isMember("verify_code"))
                 {
                     // 必填字段缺失时返回 JSON 错误，避免对缺失字段静默取空值
-                    spdlog::debug("[LogicSystem] /user_register Failed to parse Json or missing required fields!");
+                    SPDLOG_DEBUG("[LogicSystem] /user_register Failed to parse Json or missing required fields!");
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -147,7 +147,7 @@ LogicSystem::LogicSystem()
                 // 密码不一致
                 if (password != confirm)
                 {
-                    spdlog::debug("[LogicSystem] /user_register password is not equal to confirm");
+                    SPDLOG_DEBUG("[LogicSystem] /user_register password is not equal to confirm");
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_ERROR);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -162,7 +162,7 @@ LogicSystem::LogicSystem()
                 catch (const std::exception& e)
                 {
                     // Redis 不可用与验证码过期是两类问题，需返回不同错误码
-                    spdlog::error("[LogicSystem] /user_register get verify code failed email: {}, error: {}", email, e.what());
+                    SPDLOG_ERROR("[LogicSystem] /user_register get verify code failed email: {}, error: {}", email, e.what());
                     root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
                     beast::ostream(connection->m_response.body()) << root.toStyledString();
                     co_return;
@@ -170,7 +170,7 @@ LogicSystem::LogicSystem()
 
                 if (!verify_code)
                 {
-                    spdlog::debug("[LogicSystem] /user_register get verify code failed email: {}", email);
+                    SPDLOG_DEBUG("[LogicSystem] /user_register get verify code failed email: {}", email);
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_EXPIRED);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -178,7 +178,7 @@ LogicSystem::LogicSystem()
                 }
                 if (*verify_code != src_root["verify_code"].asString())
                 {
-                    spdlog::debug("[LogicSystem] /user_register verify code error verify is: {}, email: {}", *verify_code, email);
+                    SPDLOG_DEBUG("[LogicSystem] /user_register verify code error verify is: {}, email: {}", *verify_code, email);
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_ERROR);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -190,14 +190,14 @@ LogicSystem::LogicSystem()
                 // <= 0 一律算失败：只判 -1 会把 DAO 的 -11（数据库异常）当成 uid 回显给客户端
                 if (uid <= 0)
                 {
-                    spdlog::warn("[LogicSystem] /user_register register user email: {} failed, ret: {}", email, uid);
+                    SPDLOG_WARN("[LogicSystem] /user_register register user email: {} failed, ret: {}", email, uid);
                     root["error"] = static_cast<int>(ErrorCode::REGISTER_USER_FAILED);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
                     co_return;
                 }
 
-                spdlog::info("[LogicSystem] /user_register user register success, uid: {}, email: {}", uid, email);
+                SPDLOG_INFO("[LogicSystem] /user_register user register success, uid: {}, email: {}", uid, email);
 
                 root["error"] = static_cast<int>(ErrorCode::SUCCESS);
                 root["uid"] = std::to_string(uid); // uid 对外统一为字符串
@@ -213,7 +213,7 @@ LogicSystem::LogicSystem()
             [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
                 {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
-                spdlog::debug("[LogicSystem] /reset_password receive body is {}", body_str);
+                SPDLOG_DEBUG("[LogicSystem] /reset_password receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
 
                 Json::Value root;
@@ -228,7 +228,7 @@ LogicSystem::LogicSystem()
                     !src_root.isMember("password") ||
                     !src_root.isMember("verify_code"))
                 {
-                    spdlog::debug("[LogicSystem] /reset_password Failed to parse JSON or missing required fields!");
+                    SPDLOG_DEBUG("[LogicSystem] /reset_password Failed to parse JSON or missing required fields!");
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -240,7 +240,7 @@ LogicSystem::LogicSystem()
                 std::uint64_t account{0};
                 if (!uid_codec::ParseUid(account_str, account))
                 {
-                    spdlog::debug("[LogicSystem] /reset_password invalid uid string: {}", account_str);
+                    SPDLOG_DEBUG("[LogicSystem] /reset_password invalid uid string: {}", account_str);
                     root["error"] = static_cast<int>(ErrorCode::USER_UID_INVALID);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -256,7 +256,7 @@ LogicSystem::LogicSystem()
                 }
                 catch (const std::exception& e)
                 {
-                    spdlog::error("[LogicSystem] /reset_password get verify code failed email: {}, error: {}", email, e.what());
+                    SPDLOG_ERROR("[LogicSystem] /reset_password get verify code failed email: {}, error: {}", email, e.what());
                     root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
                     beast::ostream(connection->m_response.body()) << root.toStyledString();
                     co_return;
@@ -264,7 +264,7 @@ LogicSystem::LogicSystem()
 
                 if (!verify_code)
                 {
-                    spdlog::debug("[LogicSystem] /reset_password get verify code expired");
+                    SPDLOG_DEBUG("[LogicSystem] /reset_password get verify code expired");
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_EXPIRED);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -273,7 +273,7 @@ LogicSystem::LogicSystem()
 
                 if (*verify_code != src_root["verify_code"].asString())
                 {
-                    spdlog::debug("[LogicSystem] /reset_password verify code not match");
+                    SPDLOG_DEBUG("[LogicSystem] /reset_password verify code not match");
                     root["error"] = static_cast<int>(ErrorCode::VERIFY_CODE_ERROR);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
@@ -284,7 +284,7 @@ LogicSystem::LogicSystem()
                 // 依赖不可用（数据库超时/异常）与账号邮箱不匹配是两类问题，需返回不同错误码
                 if (accountValid == MatchResult::Unavailable)
                 {
-                    spdlog::error("[LogicSystem] /reset_password account check unavailable, uid: {}", account);
+                    SPDLOG_ERROR("[LogicSystem] /reset_password account check unavailable, uid: {}", account);
                     root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
@@ -292,7 +292,7 @@ LogicSystem::LogicSystem()
                 }
                 if (accountValid == MatchResult::NotMatched)
                 {
-                    spdlog::debug("[LogicSystem] /reset_password check account match email failed");
+                    SPDLOG_DEBUG("[LogicSystem] /reset_password check account match email failed");
                     root["error"] = static_cast<int>(ErrorCode::EMAIL_NOT_MATCH);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
@@ -303,14 +303,14 @@ LogicSystem::LogicSystem()
                 bool b_up = MySqlManager::GetInstance().updatePassword(account, password);
                 if (!b_up)
                 {
-                    spdlog::error("[LogicSystem] /reset_password update password failed uid: {}", account);
+                    SPDLOG_ERROR("[LogicSystem] /reset_password update password failed uid: {}", account);
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_UP_FAILED);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
                     co_return;
                 }
 
-                spdlog::info("[LogicSystem] /reset_password succeed to update password uid: {}", account);
+                SPDLOG_INFO("[LogicSystem] /reset_password succeed to update password uid: {}", account);
                 root["error"] = 0;
                 root["email"] = email;
                 // 响应不回显明文密码；请求字段名为 verify_code
@@ -324,7 +324,7 @@ LogicSystem::LogicSystem()
             [](std::shared_ptr<HttpConnection> connection) -> net::awaitable<void>
                 {
                 auto body_str = boost::beast::buffers_to_string(connection->m_request.body().data());
-                spdlog::debug("[LogicSystem] /user_login receive body is {}", body_str);
+                SPDLOG_DEBUG("[LogicSystem] /user_login receive body is {}", body_str);
                 connection->m_response.set(http::field::content_type, "text/json");
 
                 Json::Value root;
@@ -337,7 +337,7 @@ LogicSystem::LogicSystem()
                     !src_root.isMember("user") ||
                     !src_root.isMember("password"))
                 {
-                    spdlog::debug("[LogicSystem] /user_login Failed to parse JSON or missing required fields!");
+                    SPDLOG_DEBUG("[LogicSystem] /user_login Failed to parse JSON or missing required fields!");
                     root["error"] = static_cast<int>(ErrorCode::ERROR_JSON);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -350,7 +350,7 @@ LogicSystem::LogicSystem()
                 if (!uid_codec::ParseUid(account_str, account))
                 {
                     // 空串或非纯数字不能进入后续校验，否则会以 uid=0 误判为"密码错误"
-                    spdlog::debug("[LogicSystem] /user_login invalid uid string: {}", account_str);
+                    SPDLOG_DEBUG("[LogicSystem] /user_login invalid uid string: {}", account_str);
                     root["error"] = static_cast<int>(ErrorCode::USER_UID_INVALID);
                     std::string json_str = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << json_str;
@@ -362,7 +362,7 @@ LogicSystem::LogicSystem()
                 // 依赖不可用（数据库超时/异常）与密码错误是两类问题，需返回不同错误码
                 if (passwordMatch == MatchResult::Unavailable)
                 {
-                    spdlog::error("[LogicSystem] /user_login password check unavailable, uid: {}", account);
+                    SPDLOG_ERROR("[LogicSystem] /user_login password check unavailable, uid: {}", account);
                     root["error"] = static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
@@ -370,7 +370,7 @@ LogicSystem::LogicSystem()
                 }
                 if (passwordMatch == MatchResult::NotMatched)
                 {
-                    spdlog::debug("[LogicSystem] /user_login check password failed");
+                    SPDLOG_DEBUG("[LogicSystem] /user_login check password failed");
                     root["error"] = static_cast<int>(ErrorCode::PASSWORD_ERROR);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
@@ -381,14 +381,14 @@ LogicSystem::LogicSystem()
                 auto reply = StatusGrpcClient::GetInstance().getChatServer(account);
                 if (reply.error())
                 {
-                    spdlog::error("[LogicSystem] /user_login grpc get chat server failed, error is {}", reply.error());
+                    SPDLOG_ERROR("[LogicSystem] /user_login grpc get chat server failed, error is {}", reply.error());
                     root["error"] = static_cast<int>(ErrorCode::RPC_FAILED);
                     std::string jsonstr = root.toStyledString();
                     beast::ostream(connection->m_response.body()) << jsonstr;
                     co_return;
                 }
 
-                spdlog::info("[LogicSystem] /user_login succeed login user uid: {}", account);
+                SPDLOG_INFO("[LogicSystem] /user_login succeed login user uid: {}", account);
 
                 root["error"] = 0;
                 root["email"] = src_root["email"].asString();
