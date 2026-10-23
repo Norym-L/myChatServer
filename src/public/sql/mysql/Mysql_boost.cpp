@@ -435,3 +435,59 @@ net::awaitable<MysqlResult<std::vector<GroupUserInfo> > > Mysql_boost::getGroupM
 
     co_return root;
 }
+
+net::awaitable<MysqlResult<GroupInfo> > Mysql_boost::getGroupInfo(std::uint64_t group_id) const
+{
+    MysqlResult<GroupInfo> root{};
+    try
+    {
+        mysql::results result;
+        {
+            auto connection = co_await m_pool->async_get_connection(net::use_awaitable);
+            const auto sql = co_await
+                connection->async_prepare_statement(
+                    "SELECT `name`, `avatar_url`, `owner_id`, `announcement`, `max_members`, `member_count`, `created_at` FROM `groups` WHERE `id` = ?", net::use_awaitable);
+            co_await connection->async_execute(sql.bind(group_id), result, net::use_awaitable);
+        }
+        if (result.rows().empty())
+        {
+            root.error_code = -1; // 找不到群聊
+        }
+        else
+        {
+            const auto& row = result.rows().at(0);
+
+            root.error_code = 0;
+            const auto timestep = std::chrono::duration_cast<std::chrono::milliseconds>(row.at(6).as_datetime().as_time_point().time_since_epoch()).count();
+
+            root.value = {
+                .name         = row.at(0).as_string(),
+                .avatar       = row.at(1).is_null() ? std::string() : std::string(row.at(1).as_string()),
+                .ownerUid     = row.at(2).as_uint64(),
+                .announcement = row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()),
+                .maxMembers   = static_cast<std::uint32_t>(row.at(4).as_uint64()),
+                .memberCount  = static_cast<std::uint32_t>(row.at(5).as_uint64()),
+                .createAt     = std::to_string(timestep)
+            };
+        }
+        co_return root;
+    }
+    catch (mysql::error_with_diagnostics& e)
+    {
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        root.error_code = -11;
+    }
+    catch (const std::exception& e)
+    {
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
+        root.error_code = -11;
+    }
+
+    co_return root;
+}
+
+net::awaitable<int> Mysql_boost::changeGroupInfo(std::uint64_t group_id, std::uint64_t operator_id, std::optional<std::string> name, std::optional<std::string> avatar_url, std::optional<std::string> announcement, std::optional<std::uint32_t> max_members)
+{
+    co_return co_await callMysqlSpWithoutResult("CALL update_group_info(?, ?, ?, ?, ?, ?, @error)", group_id, operator_id, name, avatar_url, announcement, max_members);
+}

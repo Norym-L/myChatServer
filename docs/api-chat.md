@@ -104,7 +104,7 @@
 | `to_uid` | string | 是   | 接收方 uid；`group = true` 时为 **群 id**                                          |
 | `type`   | string | 是   | 消息类型：`1` 文本 / `2` 图片 / `3` 文件 / `4` 表情包                              |
 | `body`   | string | 是   | 消息内容；图片 / 文件 / 表情包的具体编码（URL、文件 ID 等）暂未约定                |
-| `group`  | bool   | 否   | `true` 表示群消息（缺省 `false`）；群聊细节见 [`api-group.md`](api-group.md) §9    |
+| `group`  | bool   | 否   | `true` 表示群消息（缺省 `false`）；群聊细节见 [`api-group.md`](api-group.md) §11   |
 
 > `msgid` 与 `msg_id` 是两个不同字段：前者用于 **请求 / 响应配对**（所有接口通用），后者是 **聊天消息业务编号**（只出现在
 > `1013` / `1014`），回包会同时带回两者。
@@ -114,7 +114,7 @@
   §11）；
   非好友返回 `1022`（`NOT_FRIEND`）， **消息不会写入消息流，也不会向对端推送 `1022` 通知**。
 - 群聊（`group = true`）`to_uid` 传群 id，改为校验 `SISMEMBER chatgroup_<gid>`；不在群同样返回 `1022`，详见
-  [`api-group.md`](api-group.md) §9.1。
+  [`api-group.md`](api-group.md) §11.1。
 - 好友校验通过后仍不校验登录态（见 §10）。
 - `to_uid` 解析失败、`type` 不是 `1`–`4` → 返回 `1020`。
 
@@ -165,7 +165,7 @@
 - 同实例：直接通过会话推送；跨实例：gRPC `ChatService.NotifyChatMessage` 转发到对方实例后推送。
 - 接收方离线（Redis `uip_<to_uid>` 不存在）时不推送；消息仍已写入离线消息流。
 - **系统消息的 `1022`**：群操作写入系统消息（`from_uid = 1`）后都会调用 `notifyMessageSend` 推送 `1022`
-  （创建 / 拉人 / 踢人 / 解散），见 [`api-group.md`](api-group.md) §9.5。
+  （创建 / 拉人 / 踢人 / 解散），见 [`api-group.md`](api-group.md) §11.5。
 - 客户端收到后应发送 `1023` 拉取消息。
 
 ## 6. 拉取消息（1023 / 1024）
@@ -221,7 +221,7 @@
 - 未 ACK 的消息会在后续拉取时 **重复返回**（at-least-once），客户端按 `msgs[].id` 去重。
 - 按 Stream 中的先后顺序返回。
 - 群消息与单聊共用同一消费流，通过 `msgs[].group` 区分，群消息另带 `msgs[].group_id`（见 [`api-group.md`](api-group.md)
-  §9.4）；
+  §11.4）；
   升级前已入队的群消息没有该字段，客户端需按缺失处理。
 
 ## 7. 确认收到（1025 / 1026）
@@ -274,11 +274,11 @@
 
 - 消息 **无论对端是否在线都会先写入 Stream**，在线与否只影响是否推送 `1022`。
 - 群消息不写单独的群 Stream，而是给每个群成员各写一条（含发送者本人），因此同一条群消息在各成员流中的 `id` 不相同；
-  群 id 以 `group_id` 字段写入每条消息（见 [`api-group.md`](api-group.md) §9.2）。
+  群 id 以 `group_id` 字段写入每条消息（见 [`api-group.md`](api-group.md) §11.2）。
 - 客户端 `msg_id` 只用于发送回执匹配， **不写入 Stream**；落库字段只有 `group` / `group_id` / `from_uid` / `type` /
   `body`。
 - 群操作产生的系统消息以 `from_uid = 1`、`group = y` 写入，格式与普通群消息一致；创建 / 拉人 / 踢人 / 解散后都会
-  推送 `1022`（见 [`api-group.md`](api-group.md) §9.5）。
+  推送 `1022`（见 [`api-group.md`](api-group.md) §11.5）。
 - 发送失败（Redis 不可用）只写日志， **不会**反映到 `1014` 的 `error`（见 §10）。
 
 ## 9. gRPC 接口（ChatService.NotifyChatMessage）
@@ -342,7 +342,7 @@ message NotifyChatMessageRsp
 6. **`MESSAGE_NOTIFY_CHAT_MSG_REQ`（`1015`）已定义但未使用**，实际推送用 `MESSAGE_NOTIFY_RECEIVE_MESSAGE`（`1022`），两者不要混淆。
 7. **群聊消息携带群 id**：`group = true` 时按群成员逐个写入各自的 `offlinestream_<uid>`（字段 `group=y`、
    `group_id=<gid>`），`1024` 中群消息带 `msgs[].group_id`；升级前已入队的历史群消息没有该字段。群聊的其它问题见
-   [`api-group.md`](api-group.md) §11。
+   [`api-group.md`](api-group.md) §13。
 8. **消息体大小受单帧限制**：`body_len` 上限为 `MAX_LENGTH`（2048 字节），超长消息会在会话层被判定为非法帧并断开连接。
 9. **`body` / `msg_id` / `ids[]` 未做类型校验**：`root["body"].asString()`、`root["msg_id"].asString()`、`id.asString()`
    在元素为数组 / 对象时会抛异常，异常会逃逸逻辑线程（与其它 handler 的同类问题）。

@@ -81,6 +81,10 @@ enum MessageType : std::uint16_t
     MESSAGE_GROUP_DISMISS_RSP,        //解散群聊回包
     MESSAGE_GET_GROUP_USER_INFO_REQ,  //获取群成员信息
     MESSAGE_GET_GROUP_USER_INFO_RSP,  //获取群成员信息回包
+    MESSAGE_GET_GROUP_INFO_REQ,       //获取群聊信息
+    MESSAGE_GET_GROUP_INFO_RSP,       //获取群聊信息回包
+    MESSAGE_GROUP_INFO_CHANGE_REQ,    //修改群聊信息
+    MESSAGE_GROUP_INFO_CHANGE_RSP,    //修改群聊信息
 };
 
 #include <fmt/format.h>

@@ -72,5 +72,16 @@ struct GroupUserInfo // 群成员信息
     std::uint8_t role; // 0 普通成员，1 管理员， 2 群主
 };
 
+struct GroupInfo // 群聊信息
+{
+    std::string name;
+    std::string avatar;
+    std::uint64_t ownerUid;
+    std::string announcement;
+    std::uint32_t maxMembers;
+    std::uint32_t memberCount;
+    std::string createAt; // 时间戳，用户加群时间
+};
+
 
 #endif //GATESERVER_USERINFO_H

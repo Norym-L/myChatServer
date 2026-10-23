@@ -75,7 +75,8 @@ private:
     net::awaitable<void> chatGroupKickMemberHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     net::awaitable<void> chatGroupDismissHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
     net::awaitable<void> chatGroupGetUserInfosHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
-
+    net::awaitable<void> chatGroupGetInfoHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
+    net::awaitable<void> chatGroupChangeInfoHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
 
     // 系统消息
     static net::awaitable<void> sendSystemMessage(chat_message::Message message);

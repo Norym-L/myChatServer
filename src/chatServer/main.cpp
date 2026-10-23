@@ -49,9 +49,17 @@ int main(int argc, char* argv[])
         std::string server_addr = config[name]["host"] + ":" + config[name]["grpcPort"];
         ChatServiceImpl grpc_serviec;
         grpc::ServerBuilder builder;
-        builder.AddListeningPort(server_addr, grpc::InsecureServerCredentials());
+        // selected_port 为 0 表示该地址没有绑定成功（端口占用或地址非法）
+        int selected_port = 0;
+        builder.AddListeningPort(server_addr, grpc::InsecureServerCredentials(), &selected_port);
         builder.RegisterService(&grpc_serviec);
         std::unique_ptr<grpc::Server> grpc_server(builder.BuildAndStart());
+        // 绑定失败时 BuildAndStart 返回 nullptr，必须判空，否则下面的 Wait() 会解引用空指针崩溃
+        if (!grpc_server || selected_port == 0)
+        {
+            throw std::runtime_error("grpc server failed to start on " + server_addr +
+                                     ", check whether the address is valid and the port is already in use");
+        }
         SPDLOG_INFO("[{}<grpc_server>] listen on: {}", self_section, server_addr);
 
         std::thread grpc_server_thread([&grpc_server]()

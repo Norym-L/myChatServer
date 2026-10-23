@@ -324,6 +324,20 @@ void LogicSystem::registerCallBacks()
             {
                 co_await chatGroupGetUserInfosHandler(session, message_data);
             };
+
+    m_callbackFunctions[MessageType::MESSAGE_GET_GROUP_INFO_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data) -> net::awaitable<void>
+            {
+                co_await chatGroupGetInfoHandler(session, message_data);
+            };
+
+    m_callbackFunctions[MessageType::MESSAGE_GROUP_INFO_CHANGE_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data) -> net::awaitable<void>
+            {
+                co_await chatGroupChangeInfoHandler(session, message_data);
+            };
 }
 
 net::awaitable<void> LogicSystem::loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -1083,7 +1097,7 @@ net::awaitable<void> LogicSystem::chatGroupKickMemberHandler(const std::shared_p
         .from_uid    = 1, // 系统id
         .to_uid      = group_id,
         .is_to_group = true,
-        .body        = "踢出了 " + root["uid"].asString(),
+        .body        = session->getUserId() == uid ? root["uid"].asString() + " 退出了群聊" : "踢出了 " + root["uid"].asString(),
         .message_id  = {}
     };
     co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_kick_member_msg));
@@ -1168,6 +1182,83 @@ net::awaitable<void> LogicSystem::chatGroupGetUserInfosHandler(const std::shared
         value["role"] = role; // 0 成员，1管理员，2群主
         return_value["mb_infos"].append(std::move(value));
     }
+}
+
+net::awaitable<void> LogicSystem::chatGroupGetInfoHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_GET_GROUP_INFO_RSP)
+
+    std::uint64_t group_id{};
+    if (!uid_codec::ParseUid(root["gid"].asString(), group_id))
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        co_return;
+    }
+
+    const auto [error_code, value] = co_await MySqlManager::GetInstance().co_run().getGroupInfo(group_id);
+    if (error_code < 0)
+    {
+        if (error_code == -1)
+        {
+            return_value["error"] = ErrorCode::GROUP_ID_INVALID;
+        }
+        else
+        {
+            return_value["error"] = SERVICE_UNAVAILABLE;
+        }
+        co_return;
+    }
+    return_value["error"] = ErrorCode::SUCCESS;
+    return_value["name"] = value.name;
+    return_value["avatar"] = value.avatar;
+    return_value["owner_uid"] = std::to_string(value.ownerUid);
+    return_value["announcement"] = value.announcement;
+    return_value["maxMb"] = std::to_string(value.maxMembers);
+    return_value["mbCnt"] = std::to_string(value.memberCount);
+    return_value["createAt"] = value.createAt;
+}
+
+net::awaitable<void> LogicSystem::chatGroupChangeInfoHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_GROUP_INFO_CHANGE_RSP)
+
+    std::uint64_t group_id{};
+    if (!uid_codec::ParseUid(root["gid"].asString(), group_id))
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        co_return;
+    }
+    std::optional<std::string> name = std::nullopt;
+    if (!root["name"].isNull()) name = root["name"].asString();
+    std::optional<std::string> avatar_url = std::nullopt;
+    if (!root["avatar"].isNull()) avatar_url = root["avatar"].asString();
+    std::optional<std::string> announcement = std::nullopt;
+    if (!root["announcement"].isNull()) announcement = root["announcement"].asString();
+    std::optional<std::uint32_t> max_members = std::nullopt; // 暂时不提供扩群接口
+
+    const auto error = co_await MySqlManager::GetInstance().co_run().changeGroupInfo(group_id,
+                                                                                     session->getUserId(),
+                                                                                     std::move(name),
+                                                                                     std::move(avatar_url),
+                                                                                     std::move(announcement),
+                                                                                     max_members);
+    if (error < 0)
+    {
+        if (error == -1)
+        {
+            return_value["error"] = ErrorCode::GROUP_ID_INVALID;
+        }
+        else if (error == -2)
+        {
+            return_value["error"] = ErrorCode::NO_POWER;
+        }
+        else if (error == -3)
+        {
+            return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        }
+        co_return;
+    }
+    return_value["error"] = ErrorCode::SUCCESS;
 }
 
 net::awaitable<void> LogicSystem::sendSystemMessage(chat_message::Message message)

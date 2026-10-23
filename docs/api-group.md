@@ -1,19 +1,19 @@
 # 群聊接口
 
-> **当前状态**：已实现「创建群聊 / 拉人入群 / 踢人 / 解散 / 群消息收发 / 群成员信息查询」。
-> **未实现**：主动退群、群列表、群资料（名称 / 头像 / 公告）修改、设置管理员、入群验证与邀请通知、群消息历史。
+> **当前状态**：已实现「创建群聊 / 拉人入群 / 踢人 / 解散 / 群消息收发 / 群成员信息查询 / 群资料获取与修改」。
+> **未实现**：主动退群、群列表、设置管理员、扩容（`max_members` 只读）、入群验证与邀请通知、群消息历史。
 > 群消息复用单聊的 `1013` / `1022` / `1023` / `1024` / `1025` 帧：`1013` 增加布尔字段 `group`，`1024` 的
-> `msgs[]` 增加 `group` 与 `group_id`（Stream 字段同名，见 §9.4）。
+> `msgs[]` 增加 `group` 与 `group_id`（Stream 字段同名，见 §11.4）。
 
-| 层               | 文件                                                                                                                                                                                    |
-|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| TCP 消息分发     | `src/chatServer/LogicSystem.cpp`（`createChatGroupHandler` / `chatGroupAddMembersHandler` / `chatGroupKickMemberHandler` / `chatGroupDismissHandler` / `chatGroupGetUserInfosHandler`） |
-| 消息编号         | `src/public/const.h`（`enum MessageType`、`enum ErrorCode`）                                                                                                                            |
-| 群成员集合       | `src/public/src/RedisManager_boost.cpp`（`insertToGroup` / `getUsersFromGroup` / `kickUserFromGroup` / `removeGroup` / `isInGroup`）                                                    |
-| 群消息投递       | `src/public/src/RedisManager_boost.cpp`（`insertMessageToOffline`）、`streamsAdd`                                                                                                       |
-| 群消息结构与类型 | `src/public/MessageType.h`（`namespace chat_message`）                                                                                                                                  |
-| MySQL            | `src/public/sql/mysql/Mysql_boost.cpp`（`createChatGroup` / `addGroupMember` / `kickGroupMember` / `dismissGroup` / `getGroupMemberInfos`）                                             |
-| 成员信息结构     | `src/public/data/UserInfo.h`（`struct GroupUserInfo`）                                                                                                                                  |
+| 层               | 文件                                                                                                                                                                                                                                               |
+|------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| TCP 消息分发     | `src/chatServer/LogicSystem.cpp`（`createChatGroupHandler` / `chatGroupAddMembersHandler` / `chatGroupKickMemberHandler` / `chatGroupDismissHandler` / `chatGroupGetUserInfosHandler` / `chatGroupGetInfoHandler` / `chatGroupChangeInfoHandler`） |
+| 消息编号         | `src/public/const.h`（`enum MessageType`、`enum ErrorCode`）                                                                                                                                                                                       |
+| 群成员集合       | `src/public/src/RedisManager_boost.cpp`（`insertToGroup` / `getUsersFromGroup` / `kickUserFromGroup` / `removeGroup` / `isInGroup`）                                                                                                               |
+| 群消息投递       | `src/public/src/RedisManager_boost.cpp`（`insertMessageToOffline`）、`streamsAdd`                                                                                                                                                                  |
+| 群消息结构与类型 | `src/public/MessageType.h`（`namespace chat_message`）                                                                                                                                                                                             |
+| MySQL            | `src/public/sql/mysql/Mysql_boost.cpp`（`createChatGroup` / `addGroupMember` / `kickGroupMember` / `dismissGroup` / `getGroupMemberInfos` / `getGroupInfo` / `changeGroupInfo`）                                                                   |
+| 结构定义         | `src/public/data/UserInfo.h`（`struct GroupUserInfo` / `struct GroupInfo`）                                                                                                                                                                        |
 
 ## 1. 能力概览
 
@@ -27,8 +27,10 @@
 | 群消息通知                 | `1022`                            | ✅ 已实现（`notifyMessageSend`，遍历全部成员不中断） |
 | 群消息拉取 / 确认          | `1023` / `1024` / `1025` / `1026` | ✅ 已实现（`msgs[].group` / `msgs[].group_id`）      |
 | 群成员信息                 | `1041` / `1042`                   | ✅ 已实现                                            |
-| 系统消息（`from_uid = 1`） | 复用群消息流（`1023` / `1024`）   | ✅ 均有写入，并触发 `1022`（§9.5）                   |
-| 主动退群 / 群列表 / 群资料 | ——                                | ❌ 未实现                                            |
+| 群资料获取                 | `1043` / `1044`                   | ✅ 已实现                                            |
+| 群资料修改                 | `1045` / `1046`                   | ⚠️ 已实现；数据库故障时不回 `error`（§13.12）        |
+| 系统消息（`from_uid = 1`） | 复用群消息流（`1023` / `1024`）   | ✅ 均有写入，并触发 `1022`（§11.5）                  |
+| 主动退群 / 群列表          | ——                                | ❌ 未实现                                            |
 
 ## 2. TCP 消息一览
 
@@ -44,8 +46,12 @@
 | `1040`     | `MESSAGE_GROUP_DISMISS_RSP`       | 服务端 → 客户端 | 解散回包            |
 | `1041`     | `MESSAGE_GET_GROUP_USER_INFO_REQ` | 客户端 → 服务端 | 获取群成员信息      |
 | `1042`     | `MESSAGE_GET_GROUP_USER_INFO_RSP` | 服务端 → 客户端 | 群成员信息回包      |
+| `1043`     | `MESSAGE_GET_GROUP_INFO_REQ`      | 客户端 → 服务端 | 获取群资料          |
+| `1044`     | `MESSAGE_GET_GROUP_INFO_RSP`      | 服务端 → 客户端 | 群资料回包          |
+| `1045`     | `MESSAGE_GROUP_INFO_CHANGE_REQ`   | 客户端 → 服务端 | 修改群资料          |
+| `1046`     | `MESSAGE_GROUP_INFO_CHANGE_RSP`   | 服务端 → 客户端 | 修改群资料回包      |
 
-> 群消息本身继续使用 `1013` / `1014` / `1022` / `1023` / `1024` / `1025` / `1026`，见 §9。
+> 群消息本身继续使用 `1013` / `1014` / `1022` / `1023` / `1024` / `1025` / `1026`，见 §11。
 > 帧格式见 [`api-tcp.md`](api-tcp.md)：`[message_id:2][body_len:2][body]`。
 > 本组所有处理器都使用 `HANDLER_PREFIX`：未登录（`session->getUserId() == 0`）直接返回 `1011`，并统一回显 `msgid`。
 
@@ -53,17 +59,19 @@
 
 ### 3.1 存储
 
-| 层    | key / 表                                                      | 说明                                                                 |
-|-------|---------------------------------------------------------------|----------------------------------------------------------------------|
-| MySQL | 群基础信息（表名不在本仓库，代码只通过存储过程访问）          | 群 id、群名、头像、公告、群主、最大人数                              |
-| MySQL | `group_members(group_id, user_id, role, nickname, joined_at)` | 群成员与角色，`role` 为 `owner` / `admin` / 其它（一律视为普通成员） |
-| Redis | `chatgroup_<group_id>`（Set）                                 | 成员 uid 的十进制字符串集合；`SISMEMBER` 校验、`SMEMBERS` 取成员     |
-| Redis | `offlinestream_<uid>`（Stream）                               | 群消息按成员逐个投递到各自的离线流，字段带 `group=y`（§9.2）         |
+| 层    | key / 表                                                                                                  | 说明                                                                                                              |
+|-------|-----------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
+| MySQL | `groups(id, name, avatar_url, owner_id, announcement, max_members, member_count, created_at, updated_at)` | 群基础信息；**主键是 `id`**（`group_members.group_id` 指向它），读取用 `SELECT`（`getGroupInfo`），写入走存储过程 |
+| MySQL | `group_members(group_id, user_id, role, nickname, joined_at)`                                             | 群成员与角色，`role` 为 `owner` / `admin` / 其它（一律视为普通成员）                                              |
+| Redis | `chatgroup_<group_id>`（Set）                                                                             | 成员 uid 的十进制字符串集合；`SISMEMBER` 校验、`SMEMBERS` 取成员                                                  |
+| Redis | `offlinestream_<uid>`（Stream）                                                                           | 群消息按成员逐个投递到各自的离线流，字段带 `group=y`（§11.2）                                                     |
 
 - `chatgroup_<group_id>` **没有 TTL**，也没有登录重建逻辑；只有「创建群聊」（写群主）、「拉人成功」（追加成员）、「踢人成功」（`SREM`
   ）、「解散成功」（`DEL`）会改动它。
 - 解散成功后的 `DEL` 用请求体 `group_id` 原串拼 key（见 §7.3）；`RedisManager::removeGroup` 仍没有任何调用方。
 - 群消息 **不再使用** `offlinestream_group_<gid>`，该宏已注释废弃。
+- 群资料 **没有缓存**：`1043` 每次都直接查 `groups` 表，`chatgroup_<gid>` 只存成员 uid，与群名 / 头像 / 公告无关；因此修改资料后无需同步
+  Redis。
 
 ### 3.2 角色与权限
 
@@ -73,8 +81,11 @@
 | 1  | 管理员   | 可拉人、可踢人（不能踢群主，管理员之间不能互踢） |
 | 0  | 普通成员 | 可发群消息、可拉取群成员信息                     |
 
-- 权限最终由存储过程判定（`add_group_member` / `kick_group_member` / `dismiss_group` 返回负值），服务端只做错误码映射。
+- 权限最终由存储过程判定（`add_group_member` / `kick_group_member` / `dismiss_group` / `update_group_info`
+  返回负值），服务端只做错误码映射。
 - 服务端 **不校验** 操作人角色，完全信任存储过程。
+- 群资料修改（`1045`）允许 **群主与管理员**；解散仅限群主，拉人 / 踢人同样是群主与管理员。
+- 群资料获取（`1043`） **不做任何权限校验**，也不查 Redis：非群成员只要知道群 id 就能读取（§13.13）。
 
 ## 4. 创建群聊（1033 / 1034）
 
@@ -101,7 +112,7 @@
 - 落库：`Mysql_boost::createChatGroup` → `CALL create_group(name, avator, uid, 500, announcement, @result, @error)`。
 - Redis：成功后把 **群主** 写入 `chatgroup_<gid>`；其它初始成员（若存储过程额外写入）不会同步到 Redis。
 - 成功后会以 **系统账号 `uid = 1`** 向该群写入一条系统消息：`群聊 <group_id> 已创建`，随后通过 `notifyMessageSend` 推送
-  `1022`（此时成员只有群主，见 §9.5）。
+  `1022`（此时成员只有群主，见 §11.5）。
 
 ### 4.2 响应 `MESSAGE_GROUP_CREATE_RSP`（1034）
 
@@ -148,7 +159,7 @@
 - 只做"拉人"， **不校验** 被邀请者是否存在、是否好友、是否在线；没有邀请确认流程，被邀请者通过系统消息的 `1022` 通知感知（在线时）。
 - 逐个调用 `add_group_member(group_id, uid, operator_id)`；返回 `-3`（已在群内）时跳过并继续，其它负值立即结束。
 - 全部处理成功后把本次新增的 uid 追加到 `chatgroup_<gid>`；已在群内的成员不会重复添加。
-- 随后以系统账号 `uid = 1` 向该群写入一条系统消息：`邀请了 <N> 个好友`（`N` 为本次成功新增的人数，§9.5）；因为先写 Redis
+- 随后以系统账号 `uid = 1` 向该群写入一条系统消息：`邀请了 <N> 个好友`（`N` 为本次成功新增的人数，§11.5）；因为先写 Redis
   集合再发消息， **新成员也能收到**。
 
 ### 5.2 响应 `MESSAGE_GROUP_ADD_MEMBERS_RSP`（1036）
@@ -171,7 +182,7 @@
 
 - 群已满（`-4`） **没有**映射到 `1025 GROUP_FULLED`（该错误码已定义但未使用），客户端只能看到 `1013`。
 - 若所有成员都已在群内（`-3` 全部跳过）或 `members` 是空数组，`added_members` 为空仍会执行无参数的
-  `SADD chatgroup_<gid>`，Redis 报错并抛异常 → 回包只有 `msgid`、 **没有 `error` 字段**（§11.9）。
+  `SADD chatgroup_<gid>`，Redis 报错并抛异常 → 回包只有 `msgid`、 **没有 `error` 字段**（§13.9）。
 - 响应不回传实际入群名单；客户端需重新拉取群成员信息（`1041`）确认。
 
 ### 5.3 一致性
@@ -199,7 +210,7 @@
 
 - 操作人取会话 uid；被踢者必须是同群成员。
 - 成功后先以系统账号 `uid = 1` 向群写入系统消息：`踢出了 <uid>`，调用 `notifyMessageSend` 推送 `1022`，再执行
-  `SREM chatgroup_<gid> <uid>`（§9.5）。
+  `SREM chatgroup_<gid> <uid>`（§11.5）。
 - 因为发消息和通知时被踢者仍在成员集合内， **被踢者本人也会收到这条系统消息的 `1022`**，离线流里也有这条消息；之后才被移出群。
 - 不清理被踢者离线流中已入队的群消息。
 
@@ -243,7 +254,7 @@
 
 - 仅群主可解散，由存储过程 `dismiss_group` 判定。
 - 成功后先以系统账号 `uid = 1` 写入 `该群聊已解散` 并调用 `notifyMessageSend` 推送 `1022`（此时成员集合还在，
-  **所有在线成员都会收到**），再 `DEL chatgroup_<gid>`（§9.5）。
+  **所有在线成员都会收到**），再 `DEL chatgroup_<gid>`（§11.5）。
 
 ### 7.2 响应 `MESSAGE_GROUP_DISMISS_RSP`（1040）
 
@@ -318,9 +329,159 @@
 - 只返回群内昵称 / 入群时间 / uid / 角色；用户名、头像、性别等资料需按 `uid` 另查（见 [`api-friend.md`](api-friend.md)
   的用户搜索）。
 
-## 9. 群消息（复用 1013 / 1022 / 1023 / 1024）
+## 9. 获取群聊信息（1043 / 1044）
 
-### 9.1 发送（1013 / 1014）
+### 9.1 请求 `MESSAGE_GET_GROUP_INFO_REQ`（1043）
+
+```json
+{
+  "msgid": "c-1007",
+  "gid": "20001"
+}
+```
+
+| 字段    | 类型   | 必填 | 说明                                                                                           |
+|---------|--------|------|------------------------------------------------------------------------------------------------|
+| `msgid` | 任意   | 否   | 原样回显                                                                                       |
+| `gid`   | string | 是   | 群 id；**字段名是 `gid`**（与 `1041` 一致，与本组其它接口的 `group_id` 不一致），非法 → `1020` |
+
+- **不校验成员身份**：只要会话已登录，任何群 id 都能查（§13.13）。
+- 直接读 MySQL 的 `groups` 表， **没有 Redis 缓存**，每次请求都会打库；改完资料后重新调用即可看到新值。
+
+### 9.2 响应 `MESSAGE_GET_GROUP_INFO_RSP`（1044）
+
+```json
+{
+  "error": 0,
+  "msgid": "c-1007",
+  "name": "产品交流群",
+  "avatar": "http://example.com/group.png",
+  "owner_uid": "10001",
+  "announcement": "禁止广告",
+  "maxMb": "500",
+  "mbCnt": "3",
+  "createAt": "1734567890123"
+}
+```
+
+| 字段           | 类型   | 说明                                                                  |
+|----------------|--------|-----------------------------------------------------------------------|
+| `error`        | int    | `0` 成功；`1020` `gid` 解析失败；`1023` 群不存在；`1013` 数据库不可用 |
+| `msgid`        | 任意   | 原样回显                                                              |
+| `name`         | string | 群名称                                                                |
+| `avatar`       | string | 群头像 URL（`groups.avatar_url`，数据库为 `NULL` 时为空串）           |
+| `owner_uid`    | string | 群主 uid                                                              |
+| `announcement` | string | 群公告，数据库为 `NULL` 时为空串                                      |
+| `maxMb`        | string | 最大成员数（**字符串**，取 `groups.max_members`）                     |
+| `mbCnt`        | string | 当前成员数（**字符串**，取 `groups.member_count` 冗余计数）           |
+| `createAt`     | string | 建群时间（`groups.created_at`），**毫秒时间戳字符串**                 |
+
+| error  | 含义           | MySQL 返回       |
+|--------|----------------|------------------|
+| `0`    | 查询成功       | `0`              |
+| `1011` | 会话未登录     | ——               |
+| `1020` | `gid` 解析失败 | ——               |
+| `1023` | 群不存在       | `-1`             |
+| `1013` | 数据库不可用   | `-11` / 其它负值 |
+
+- 字段名不对称：请求用 `gid`，响应用 `avatar` / `maxMb` / `mbCnt` / `createAt`；创建接口的请求字段是拼写错误的 `avator`
+  （§13.5）。
+- `mbCnt` 来自 `groups.member_count`，不是对 `group_members` 的实时统计；与 `1041` 返回的成员列表长度不一致时，以成员列表为准。
+- `name` 列在 DDL 中是 `NOT NULL`，因此读取时未判空也不会抛异常；`avatar_url` / `announcement` 允许 `NULL`，代码里已按
+  `is_null()` 兜底为空串。
+
+## 10. 修改群聊信息（1045 / 1046）
+
+### 10.1 请求 `MESSAGE_GROUP_INFO_CHANGE_REQ`（1045）
+
+```json
+{
+  "msgid": "c-1008",
+  "gid": "20001",
+  "name": "产品交流群（新）",
+  "avatar": "http://example.com/new.png",
+  "announcement": "禁止广告，违者移出"
+}
+```
+
+| 字段           | 类型   | 必填 | 说明                                                                      |
+|----------------|--------|------|---------------------------------------------------------------------------|
+| `msgid`        | 任意   | 否   | 原样回显                                                                  |
+| `gid`          | string | 是   | 群 id，解析失败返回 `1020`                                                |
+| `name`         | string | 否   | 群名称；**缺省或 `null` 表示不修改**，空串按非法处理（存储过程返回 `-3`） |
+| `avatar`       | string | 否   | 群头像；缺省或 `null` 不修改，**空串表示清空**                            |
+| `announcement` | string | 否   | 群公告；缺省或 `null` 不修改，**空串表示清空**                            |
+
+- 操作人固定为会话 uid（`session->getUserId()`），请求体不传；必须是该群的 **群主或管理员**，由存储过程判定。
+- **本接口用 `avatar`，创建群聊用 `avator`**，两处拼写不一致（§13.5）。
+- **不支持修改最大人数**：`max_members` 在代码中固定为 `std::nullopt`（"暂时不提供扩群接口"），请求里带 `maxMb` /
+  `max_members`
+  不会生效。
+- 只传 `gid`（三个字段全部缺省）也会走一次存储过程：权限校验通过后执行等值 `UPDATE`，返回 `error = 0`。
+
+### 10.2 可选字段语义（`std::optional` → SQL `NULL`）
+
+| 请求中的字段状态 | C++ 侧            | 存储过程收到 | 结果                            |
+|------------------|-------------------|--------------|---------------------------------|
+| 字段不出现       | `std::nullopt`    | `NULL`       | 保留原值                        |
+| 显式 `null`      | `std::nullopt`    | `NULL`       | 保留原值                        |
+| `""`（空串）     | `optional{""}`    | `''`         | 覆盖为空串（可清空头像 / 公告） |
+| 非空字符串       | `optional{value}` | 值           | 覆盖为新值                      |
+
+- 判空用 `root["name"].isNull()`：jsoncpp 的 `operator[]` 对缺失键会插入 `null`，因此 **缺省与显式 `null` 行为一致**。
+- `boost.mysql` 绑定空 `std::optional<T>` 时发送 `NULL`，存储过程用 `COALESCE(p_x, x)` 实现"`NULL` 保留原值"。
+- `""` 不是 `NULL`，所以能真正把头像 / 公告清空；群名传 `""` 会被存储过程判为非法值。
+
+### 10.3 响应 `MESSAGE_GROUP_INFO_CHANGE_RSP`（1046）
+
+```json
+{
+  "error": 0,
+  "msgid": "c-1008"
+}
+```
+
+| error  | 含义                                      | 存储过程返回  |
+|--------|-------------------------------------------|---------------|
+| `0`    | 修改成功                                  | `0`           |
+| `1011` | 会话未登录                                | ——            |
+| `1020` | `gid` 解析失败，**或**群名为空串          | `-3`          |
+| `1023` | 群不存在                                  | `-1`          |
+| `1024` | 操作人不是群主 / 管理员（含非群成员）     | `-2`          |
+| ——     | 数据库不可用：**回包不出现 `error` 字段** | `-10` / `-11` |
+
+- 处理器只映射 `-1` / `-2` / `-3`，其它负值直接 `co_return`，回包只剩 `msgid`；客户端应把"缺 `error`"当作失败（§13.12）。
+- 成功回包只有 `error`，不回传修改后的资料；需要客户端再调 `1043` 拉取。
+- **不写系统消息、不推送 `1022`**：与本组其它写操作不同，其它成员不会感知资料变更（§13.14）。
+
+### 10.4 存储过程约定
+
+```sql
+CALL update_group_info(gid, operator_id, name, avatar_url, announcement, max_members, @error)
+```
+
+| 形参               | 含义                             | 本接口传入               |
+|--------------------|----------------------------------|--------------------------|
+| `p_group_id`       | 群 id                            | `gid`                    |
+| `p_operator_id`    | 操作人 uid                       | 会话 uid                 |
+| `p_name`           | 群名，`NULL` 保留原值            | `name` 或 `NULL`         |
+| `p_avatar_url`     | 头像，`NULL` 保留原值            | `avatar` 或 `NULL`       |
+| `p_announcement`   | 公告，`NULL` 保留原值            | `announcement` 或 `NULL` |
+| `p_max_members`    | 最大成员数，`NULL` 保留原值      | 恒为 `NULL`              |
+| `p_error`（`OUT`） | `0` / `-1` / `-2` / `-3` / `-10` | C++ 侧读 `@error`        |
+
+- 存储过程 **已入库**（`chatserver.update_group_info`，形参即上表），但 DDL **不在本仓库**，改动需直接在数据库侧执行；更新语句用
+  `COALESCE(p_x, x)` 实现"`NULL` 保留原值"。
+- 实际校验顺序：群存在（`-1`，查 `groups.id`）→ 操作人角色为 `owner` / `admin`（`-2`，不在群内同样返回 `-2`）→ 参数合法（`-3`
+  ，群名非空串、`max_members`
+  不小于当前成员数）→ 执行 `UPDATE`。
+- 形参长度需覆盖 `groups` 的列定义：`p_name` / `p_avatar_url` 均为 `VARCHAR(255)`，而 `groups.name` 是 `VARCHAR(150)`、
+  `groups.avatar_url` 是 `VARCHAR(512)`。头像 URL 超过 255 字符会被截断或报错，建议把 `p_avatar_url` 放宽到 512。
+- 数据库异常统一由存储过程的 `EXIT HANDLER` 返回 `-10`，连接 / 执行异常则由 C++ 包装层返回 `-11`。
+
+## 11. 群消息（复用 1013 / 1022 / 1023 / 1024）
+
+### 11.1 发送（1013 / 1014）
 
 ```json
 {
@@ -347,7 +508,7 @@
 - 服务端 **不校验群是否存在**，只认 Redis 集合：群已被解散但 `chatgroup_<gid>` 未清理时仍能发送成功。
 - 回执与单聊一致：`{"error":0,"msgid":"...","msg_id":"m-0001"}`，`0` 只代表已写入成员的离线流。
 
-### 9.2 投递
+### 11.2 投递
 
 - `RedisManager::insertMessageToOffline` 对 `SMEMBERS chatgroup_<gid>` 中的 **每个成员（含发送者本人）** 执行
   `XADD offlinestream_<member_uid>`，一次 pipeline 批量写（`streamsAdd`）。
@@ -355,7 +516,7 @@
 - 与单聊一致：无论成员是否在线都会写入；保留约 7 天；ACK 后删除。
 - 发送者也会收到自己发的群消息（发送者本身也是群成员）。
 
-### 9.3 通知（1022）
+### 11.3 通知（1022）
 
 通知统一由 `LogicSystem::notifyMessageSend(is_group, to_id)` 完成：
 
@@ -369,7 +530,7 @@
     - 创建群聊、拉人入群、踢人成功后的系统消息写入之后（踢人时通知发生在 `SREM` 之前，被踢者也能收到）；
     - 解散：系统消息写入后、`DEL` 群集合之前调用通知 → 成员列表还在， **所有在线成员都会收到 `1022`**。
 
-### 9.4 拉取（1023 / 1024）
+### 11.4 拉取（1023 / 1024）
 
 群消息与单聊消息共用同一条消费流 `offlinestream_<uid>`，`1024` 的每个群消息元素新增 `group` 与 `group_id`：
 
@@ -404,7 +565,7 @@
 - 拉取 / ACK 规则（PEL 优先、单次上限 10 条、ACK 即删除、`XACKDEL` 需 Redis 8.2+）与单聊完全一致，见 [
   `api-chat.md`](api-chat.md) §6–§7。
 
-### 9.5 系统消息（`from_uid = 1`）
+### 11.5 系统消息（`from_uid = 1`）
 
 群操作成功后，服务端会以 **系统账号 `uid = 1`** 向群内写入一条文本消息，格式与普通群消息完全一致：
 
@@ -422,7 +583,7 @@
 - 依赖约定： **uid `1` 保留给系统账号**，注册流程不能把 1 分配给真实用户；当前服务端没有强制校验，需数据库侧保证。
 - 系统消息与普通群消息一样写入各成员的 `offlinestream_<uid>`，随 `1025` ACK 删除。
 
-## 10. Redis 键位
+## 12. Redis 键位
 
 | 键                     | 类型   | TTL                | 写入方     | 用途                                                           |
 |------------------------|--------|--------------------|------------|----------------------------------------------------------------|
@@ -433,14 +594,15 @@
 - 群成员集合没有 TTL 与重建逻辑：Redis 被清空 / 重启丢数据后，`isInGroup` 全部为假 → 群消息发送、成员信息查询全部失败。恢复只能靠重新执行拉人（
   `1035`）或手动补数据。
 
-## 11. 已知问题与限制
+## 13. 已知问题与限制
 
 1. **拉人非事务**（§5.3）：逐成员提交，中途失败不回滚，也不会写 Redis。
 2. **解散错误码被覆盖**（§7.3）：群不存在时返回 `1013` 而不是 `1023`。
 3. **解散清理 key 用请求原串**（§7.3）：带前导零等写法会漏删真实 key；`DEL` 失败时回包缺 `error`（MySQL 已解散）。
 4. **`GROUP_FULLED`（`1025`）未使用**：群满（`-4`）在拉人接口被映射为 `1013 SERVICE_UNAVAILABLE`。
-5. **字段命名不一致**：创建群用 `avator`（拼写错误）、成员查询用 `gid`，其余接口用 `group_id`。
-6. **缺少基础能力**：主动退群、群列表、群资料修改、设置管理员、入群验证 / 邀请确认均未实现；被拉入群的用户只能通过系统消息的
+5. **字段命名不一致**：创建群用 `avator`（拼写错误）、修改群资料用 `avatar`、成员查询与群资料获取用 `gid`，其余接口用
+   `group_id`。
+6. **缺少基础能力**：主动退群、群列表、设置管理员、入群验证 / 邀请确认、群消息历史均未实现；被拉入群的用户只能通过系统消息的
    `1022` 感知。
 7. **群人数上限硬编码 500**，客户端不可配置。
 8. **Redis 与 MySQL 弱一致**：先 MySQL 后 Redis，Redis 失败不回滚；群集合无 TTL、无重建。
@@ -448,3 +610,8 @@
    ，Redis 返回参数错误并抛异常 → 回包只有 `msgid`、 **没有 `error` 字段**。
 10. **创建群只同步群主到 Redis**：若存储过程还写入了其它初始成员，Redis 集合不会包含他们，这些成员发消息会被判为"不在群内"。
 11. **系统账号 `uid = 1` 没有占用保护**：服务端只是把 `1` 当系统 id 使用，注册/数据库侧若把 1 分配给真实用户，会与系统消息混淆。
+12. **修改群资料：数据库故障不回 `error`**：处理器只映射 `-1` / `-2` / `-3`，`-10` / `-11` 等负值直接返回，回包只剩 `msgid`
+    （§10.3）。客户端需把"缺 `error`"视为失败，否则会把写库失败当成成功。
+13. **获取群资料不校验成员身份**：任意已登录用户按群 id 即可读取任意群资料（§9.2）。
+14. **群资料修改不写系统消息、不能扩容**：与本组其它写操作不同，成员不会收到 `1022` 通知；`max_members` 在接口层固定传
+    `NULL`，存储过程虽支持但客户端无法修改。

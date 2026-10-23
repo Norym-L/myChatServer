@@ -135,6 +135,29 @@ public:
      */
     net::awaitable<MysqlResult<std::vector<GroupUserInfo> > > getGroupMemberInfos(std::uint64_t group_id);
 
+    /**
+     * 获取群聊信息
+     * @param group_id 群id
+     * @return 0 查询成功, -1 代表群不存在, -11 代表数据库异常
+     */
+    net::awaitable<MysqlResult<GroupInfo> > getGroupInfo(std::uint64_t group_id) const;
+
+    /**
+     * 修改群聊信息（std::optional 为空表示该字段延用原值，绑定为 NULL）
+     * @param group_id 群id
+     * @param operator_id 操作者uid（需为群主或管理员）
+     * @param name 群名称
+     * @param avatar_url 群头像，传空串可清空
+     * @param announcement 群公告，传空串可清空
+     * @param max_members 最大成员数，不能小于当前成员数
+     * @return 0 成功, -1 群不存在, -2 权限不足, -3 参数非法, -11 数据库异常
+     */
+    net::awaitable<int> changeGroupInfo(std::uint64_t group_id, std::uint64_t operator_id,
+                                        std::optional<std::string> name = std::nullopt,
+                                        std::optional<std::string> avatar_url = std::nullopt,
+                                        std::optional<std::string> announcement = std::nullopt,
+                                        std::optional<std::uint32_t> max_members = std::nullopt);
+
 private:
     std::unique_ptr<mysql::connection_pool> m_pool;
 
