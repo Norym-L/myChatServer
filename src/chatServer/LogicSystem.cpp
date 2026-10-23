@@ -296,7 +296,14 @@ void LogicSystem::registerCallBacks()
         const std::shared_ptr<CSession>& session,
         const std::string& message_data) -> net::awaitable<void>
             {
-                co_await chatGroupDismiss(session, message_data);
+                co_await chatGroupDismissHandler(session, message_data);
+            };
+
+    m_callbackFunctions[MessageType::MESSAGE_GET_GROUP_USER_INFO_REQ] = [this](
+        const std::shared_ptr<CSession>& session,
+        const std::string& message_data) -> net::awaitable<void>
+            {
+                co_await chatGroupGetUserInfosHandler(session, message_data);
             };
 }
 
@@ -1087,7 +1094,7 @@ net::awaitable<void> LogicSystem::chatGroupKickMemberHandler(const std::shared_p
     return_value["error"] = ErrorCode::SUCCESS;
 }
 
-net::awaitable<void> LogicSystem::chatGroupDismiss(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+net::awaitable<void> LogicSystem::chatGroupDismissHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     HANDLER_PREFIX(MESSAGE_GROUP_DISMISS_RSP)
 
@@ -1116,6 +1123,42 @@ net::awaitable<void> LogicSystem::chatGroupDismiss(const std::shared_ptr<CSessio
         co_return;
     }
     return_value["error"] = ErrorCode::SUCCESS;
+}
+
+net::awaitable<void> LogicSystem::chatGroupGetUserInfosHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
+{
+    HANDLER_PREFIX(MESSAGE_GET_GROUP_USER_INFO_RSP)
+
+    std::uint64_t group_id{};
+    if (!uid_codec::ParseUid(root["gid"].asString(), group_id))
+    {
+        return_value["error"] = ErrorCode::REQUEST_VALUE_INVALID;
+        co_return;
+    }
+
+    if (!co_await RedisManager::GetInstance().isInGroup(group_id, session->getUserId()))
+    {
+        return_value["error"] = ErrorCode::NO_POWER;
+        co_return;
+    }
+
+    const auto& [error_code, user_infos] = co_await MySqlManager::GetInstance().co_run().getGroupMemberInfos(group_id);
+    if (error_code < 0)
+    {
+        // isInGroup 判断过群一定存在
+        return_value["error"] = ErrorCode::SERVICE_UNAVAILABLE;
+        co_return;
+    }
+    return_value["error"] = ErrorCode::SUCCESS;
+    for (const auto& [nick_g, joinedAt, uid, role]: user_infos)
+    {
+        Json::Value value;
+        value["nick_g"] = nick_g;
+        value["join_at"] = joinedAt;
+        value["uid"] = std::to_string(uid);
+        value["role"] = role; // 0 成员，1管理员，2群主
+        return_value["mb_infos"].append(std::move(value));
+    }
 }
 
 bool LogicSystem::GrpcSendFriendRequestToOther(const std::uint64_t add_friend_request_id, const std::uint64_t to_uid, const std::string& user_ip)

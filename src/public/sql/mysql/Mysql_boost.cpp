@@ -379,3 +379,59 @@ net::awaitable<int> Mysql_boost::dismissGroup(std::uint64_t group_id, std::uint6
 {
     co_return co_await callMysqlSpWithoutResult("CALL dismiss_group(?, ?, @error)", group_id, operator_id);
 }
+
+// ReSharper disable once CppMemberFunctionMayBeConst 协程
+net::awaitable<MysqlResult<std::vector<GroupUserInfo> > > Mysql_boost::getGroupMemberInfos(std::uint64_t group_id)
+{
+    MysqlResult<std::vector<GroupUserInfo> > root{};
+    try
+    {
+        mysql::results result;
+        {
+            auto connection = co_await m_pool->async_get_connection(net::use_awaitable);
+            const auto sql = co_await
+                connection->async_prepare_statement(
+                    "SELECT `nickname`, `joined_at`, `user_id`, `role` FROM `group_members` WHERE `group_id` = ?", net::use_awaitable);
+            co_await connection->async_execute(sql.bind(group_id), result, net::use_awaitable);
+        }
+        if (result.rows().empty())
+        {
+            root.error_code = -1; // 找不到群聊
+        }
+        else
+        {
+            root.error_code = 0;
+            root.value.reserve(result.rows().size());
+            for (const auto& row: result.rows())
+            {
+                const auto timestep = std::chrono::duration_cast<std::chrono::milliseconds>(row.at(1).as_datetime().as_time_point().time_since_epoch()).count();
+
+                std::uint8_t role = 0;
+                std::string role_str = row.at(3).as_string();
+                if (role_str == "owner") role = 2;
+                else if (role_str == "admin") role = 1;
+
+                root.value.emplace_back(
+                    row.at(0).is_null() ? std::string() : std::string(row.at(0).as_string()),
+                    std::to_string(timestep),
+                    row.at(2).as_uint64(),
+                    role
+                    );
+            }
+        }
+        co_return root;
+    }
+    catch (mysql::error_with_diagnostics& e)
+    {
+        SPDLOG_ERROR("[MySqlDao] MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server diagnostics: {}", e.get_diagnostics().server_message());
+        root.error_code = -11;
+    }
+    catch (const std::exception& e)
+    {
+        SPDLOG_ERROR("[MySqlDao] Error: {}", e.what());
+        root.error_code = -11;
+    }
+
+    co_return root;
+}

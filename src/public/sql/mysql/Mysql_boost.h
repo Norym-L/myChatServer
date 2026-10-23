@@ -128,6 +128,13 @@ public:
      */
     net::awaitable<int> dismissGroup(std::uint64_t group_id, std::uint64_t operator_id);
 
+    /**
+     * 获取群成员信息
+     * @param group_id 群id
+     * @return  0 查询成功, -1 代表群不存在, -11 代表数据库异常
+     */
+    net::awaitable<MysqlResult<std::vector<GroupUserInfo> > > getGroupMemberInfos(std::uint64_t group_id);
+
 private:
     std::unique_ptr<mysql::connection_pool> m_pool;
 

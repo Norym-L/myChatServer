@@ -64,5 +64,13 @@ struct ApplyInfo
     FriendApplyStatus status{FriendApplyStatus::WAITING}; // 是否接受
 };
 
+struct GroupUserInfo // 群成员信息
+{
+    std::string nick_g;   // 在群里的备注
+    std::string joinedAt; // 时间戳，用户加群时间
+    std::uint64_t uid;
+    std::uint8_t role; // 0 普通成员，1 管理员， 2 群主
+};
+
 
 #endif //GATESERVER_USERINFO_H
