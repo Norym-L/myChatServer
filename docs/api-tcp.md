@@ -41,7 +41,7 @@ ChatServer 对外提供**裸 TCP**（非 HTTP/WebSocket）私有协议服务，�
 
 > 服务端主动推送（如 `1009` / `1012` / `1022`）不是请求的响应，不带 `msgid`。
 >
-> `msgid` 与帧头的 `message_id` 无关：后者是消息类型编号（`1001`–`1032`）。
+> `msgid` 与帧头的 `message_id` 无关：后者是消息类型编号（`1001`–`1042`）。
 > `msgid` 也 **不是**聊天消息的 `msg_id`（后者是 `1013` / `1014` 的业务字段，见 [`api-chat.md`](api-chat.md)）。
 > 客户端应按 `msgid` 匹配请求与响应，而不是按到达顺序；服务端串行处理同一连接的请求，回包顺序与请求一致。
 
@@ -175,7 +175,7 @@ print(message_id, json.loads(body.decode()))
 - 已实现登录（含好友集合载入）、用户搜索、好友申请/同步/好友列表/删除好友/设置好友备注、编辑用户资料、聊天消息发送（含好友校验）/通知/拉取/确认（含
   PEL
   重投）、
-  心跳； **历史记录与群聊尚未实现**；
+  心跳、群聊（创建 / 拉人 / 踢人 / 解散 / 群消息 / 群成员信息，见 [`api-group.md`](api-group.md)）； **历史记录尚未实现**；
 - 明文传输（未启用 TLS），且无消息级鉴权（登录成功后不再校验后续帧）。
 
 ## 6. 聊天消息接口
@@ -223,3 +223,24 @@ print(message_id, json.loads(body.decode()))
 | `1030`     | `MESSAGE_SET_FRIEND_REMARK_RSP`    | 服务端 → 客户端         |
 | `1031`     | `MESSAGE_CHANGE_USER_INFO_REQ`     | 客户端 → 服务端         |
 | `1032`     | `MESSAGE_CHANGE_USER_INFO_RSP`     | 服务端 → 客户端         |
+
+## 8. 群聊接口
+
+群聊的创建 / 拉人 / 踢人 / 解散 / 群成员信息，以及群消息（复用 `1013` / `1022` / `1023` / `1024`）的完整字段与已知问题见独立文档
+**[`api-group.md`](api-group.md)**。编号速查：
+
+| message_id | 名称                              | 方向            |
+|------------|-----------------------------------|-----------------|
+| `1033`     | `MESSAGE_GROUP_CREATE_REQ`        | 客户端 → 服务端 |
+| `1034`     | `MESSAGE_GROUP_CREATE_RSP`        | 服务端 → 客户端 |
+| `1035`     | `MESSAGE_GROUP_ADD_MEMBERS_REQ`   | 客户端 → 服务端 |
+| `1036`     | `MESSAGE_GROUP_ADD_MEMBERS_RSP`   | 服务端 → 客户端 |
+| `1037`     | `MESSAGE_GROUP_KICK_MEMBER_REQ`   | 客户端 → 服务端 |
+| `1038`     | `MESSAGE_GROUP_KICK_MEMBER_RSP`   | 服务端 → 客户端 |
+| `1039`     | `MESSAGE_GROUP_DISMISS_REQ`       | 客户端 → 服务端 |
+| `1040`     | `MESSAGE_GROUP_DISMISS_RSP`       | 服务端 → 客户端 |
+| `1041`     | `MESSAGE_GET_GROUP_USER_INFO_REQ` | 客户端 → 服务端 |
+| `1042`     | `MESSAGE_GET_GROUP_USER_INFO_RSP` | 服务端 → 客户端 |
+
+> 群消息本身仍用 `1013` 发送（`group: true`，`to_uid` 传群 id），在线成员收 `1022`，用 `1023` 拉取（群消息的 `msgs[].group_id`
+> 为群 id）、`1025` 确认。

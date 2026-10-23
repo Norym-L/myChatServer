@@ -747,62 +747,7 @@ net::awaitable<void> LogicSystem::sendTextMessageHandler(const std::shared_ptr<C
 
     return_value["error"] = ErrorCode::SUCCESS;
 
-    // 通知对方有消息
-    if (!is_group)
-    {
-        const auto user_ip = co_await RedisManager::GetInstance().isUserOnLine(to_uid);
-        if (!user_ip || user_ip->empty())
-        {
-            co_return; // 对方不在线
-        }
-        if (*user_ip == m_selfServerName)
-        {
-            // 在当前服务器
-            const auto session_other = UserManager::GetInstance().getSession(to_uid);
-            if (!session_other)
-            {
-                co_return;
-            }
-            session_other->notifyReceiveMessage();
-            co_return;
-        }
-
-        (void) GrpcNotifyReceiveMessageToOther(to_uid, *user_ip);
-    }
-    else
-    {
-        std::vector<std::uint64_t> uids;
-        for (const auto& uid_str: co_await RedisManager::GetInstance().getUsersFromGroup(to_uid))
-        {
-            std::uint64_t uid{};
-            if (!uid_codec::ParseNumber(uid_str, uid))
-            {
-                continue;
-            }
-            uids.push_back(uid);
-        }
-        for (const auto& uid: uids)
-        {
-            const auto user_ip = co_await RedisManager::GetInstance().isUserOnLine(uid);
-            if (!user_ip || user_ip->empty())
-            {
-                co_return; // 对方不在线
-            }
-            if (*user_ip == m_selfServerName)
-            {
-                // 在当前服务器
-                const auto session_other = UserManager::GetInstance().getSession(uid);
-                if (!session_other)
-                {
-                    co_return;
-                }
-                session_other->notifyReceiveMessage();
-                co_return;
-            }
-
-            (void) GrpcNotifyReceiveMessageToOther(uid, *user_ip);
-        }
-    }
+    co_await notifyMessageSend(is_group, to_uid);
 }
 
 net::awaitable<void> LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -856,6 +801,10 @@ net::awaitable<void> LogicSystem::syncChatMessageHandler(const std::shared_ptr<C
     {
         Json::Value value;
         value["group"] = message.is_to_group;
+        if (message.is_to_group && message.to_uid != 0) // 升级前写入的群消息没有 group_id
+        {
+            value["group_id"] = std::to_string(message.to_uid);
+        }
         value["type"] = message.type;
         value["from_uid"] = std::to_string(message.from_uid);
         value["body"] = message.body;
@@ -1006,7 +955,17 @@ net::awaitable<void> LogicSystem::createChatGroupHandler(const std::shared_ptr<C
 
     co_await RedisManager::GetInstance().insertToGroup(value, {std::to_string(session->getUserId())});
     return_value["group_id"] = std::to_string(value);
+    chat_message::Message system_group_created_msg{
+        .type        = chat_message::TEXT,
+        .from_uid    = 1, // 系统id
+        .to_uid      = value,
+        .is_to_group = true,
+        .body        = "群聊 " + std::to_string(value) + " 已创建",
+        .message_id  = {}
+    };
+    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_group_created_msg));
     return_value["error"] = ErrorCode::SUCCESS;
+    co_await notifyMessageSend(true, value);
 }
 
 net::awaitable<void> LogicSystem::chatGroupAddMembersHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -1023,7 +982,7 @@ net::awaitable<void> LogicSystem::chatGroupAddMembersHandler(const std::shared_p
     for (const auto& member: root["members"])
     {
         std::uint64_t member_uid{};
-        if (!uid_codec::ParseUid(member.asString(), group_id))
+        if (!uid_codec::ParseUid(member.asString(), member_uid))
         {
             continue;
         }
@@ -1050,8 +1009,18 @@ net::awaitable<void> LogicSystem::chatGroupAddMembersHandler(const std::shared_p
         } // 不管已经在群里的用户
         added_members.emplace_back(member.asString());
     }
+    chat_message::Message system_add_member_msg{
+        .type        = chat_message::TEXT,
+        .from_uid    = 1, // 系统id
+        .to_uid      = group_id,
+        .is_to_group = true,
+        .body        = "邀请了 " + std::to_string(added_members.size()) + " 个好友",
+        .message_id  = {}
+    };
     co_await RedisManager::GetInstance().insertToGroup(group_id, std::move(added_members));
+    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_add_member_msg));
     return_value["error"] = ErrorCode::SUCCESS;
+    co_await notifyMessageSend(true, group_id);
 }
 
 net::awaitable<void> LogicSystem::chatGroupKickMemberHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -1090,6 +1059,16 @@ net::awaitable<void> LogicSystem::chatGroupKickMemberHandler(const std::shared_p
         }
         co_return;
     }
+    chat_message::Message system_kick_member_msg{
+        .type        = chat_message::TEXT,
+        .from_uid    = 1, // 系统id
+        .to_uid      = group_id,
+        .is_to_group = true,
+        .body        = "踢出了 " + root["uid"].asString(),
+        .message_id  = {}
+    };
+    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_kick_member_msg));
+    co_await notifyMessageSend(true, group_id);
     co_await RedisManager::GetInstance().kickUserFromGroup(group_id, root["uid"].asString());
     return_value["error"] = ErrorCode::SUCCESS;
 }
@@ -1122,6 +1101,17 @@ net::awaitable<void> LogicSystem::chatGroupDismissHandler(const std::shared_ptr<
         }
         co_return;
     }
+    chat_message::Message system_group_dismiss_msg{
+        .type        = chat_message::TEXT,
+        .from_uid    = 1, // 系统id
+        .to_uid      = group_id,
+        .is_to_group = true,
+        .body        = "该群聊已解散",
+        .message_id  = {}
+    };
+    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_group_dismiss_msg));
+    co_await notifyMessageSend(true, group_id);
+    co_await RedisManager::GetInstance().del({CHAT_GROUP_PERFIX + root["group_id"].asString()});
     return_value["error"] = ErrorCode::SUCCESS;
 }
 
@@ -1158,6 +1148,72 @@ net::awaitable<void> LogicSystem::chatGroupGetUserInfosHandler(const std::shared
         value["uid"] = std::to_string(uid);
         value["role"] = role; // 0 成员，1管理员，2群主
         return_value["mb_infos"].append(std::move(value));
+    }
+}
+
+net::awaitable<void> LogicSystem::sendSystemMessage(chat_message::Message message)
+{
+    message.from_uid = 1; // 1 是系统uid
+    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(message));
+}
+
+net::awaitable<void> LogicSystem::notifyMessageSend(const bool is_group, const std::uint64_t to_id) const
+{
+    // 通知对方有消息
+    if (!is_group)
+    {
+        const auto user_ip = co_await RedisManager::GetInstance().isUserOnLine(to_id);
+        if (!user_ip || user_ip->empty())
+        {
+            co_return; // 对方不在线
+        }
+        if (*user_ip == m_selfServerName)
+        {
+            // 在当前服务器
+            const auto session_other = UserManager::GetInstance().getSession(to_id);
+            if (!session_other)
+            {
+                co_return;
+            }
+            session_other->notifyReceiveMessage();
+            co_return;
+        }
+
+        (void) GrpcNotifyReceiveMessageToOther(to_id, *user_ip);
+    }
+    else
+    {
+        std::vector<std::uint64_t> uids;
+        for (const auto& uid_str: co_await RedisManager::GetInstance().getUsersFromGroup(to_id))
+        {
+            std::uint64_t uid{};
+            if (!uid_codec::ParseNumber(uid_str, uid))
+            {
+                continue;
+            }
+            uids.push_back(uid);
+        }
+        for (const auto& uid: uids)
+        {
+            const auto user_ip = co_await RedisManager::GetInstance().isUserOnLine(uid);
+            if (!user_ip || user_ip->empty())
+            {
+                continue; // 对方不在线
+            }
+            if (*user_ip == m_selfServerName)
+            {
+                // 在当前服务器
+                const auto session_other = UserManager::GetInstance().getSession(uid);
+                if (!session_other)
+                {
+                    continue;
+                }
+                session_other->notifyReceiveMessage();
+                continue;
+            }
+
+            (void) GrpcNotifyReceiveMessageToOther(uid, *user_ip);
+        }
     }
 }
 

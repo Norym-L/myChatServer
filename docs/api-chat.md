@@ -1,6 +1,7 @@
 # 聊天消息接口
 
-> **当前状态**：已实现「发送消息」「新消息通知」「拉取消息」「确认收到（ACK）」与 **发送前的好友校验**； **历史记录与群聊未实现**。
+> **当前状态**：已实现「发送消息」「新消息通知」「拉取消息」「确认收到（ACK）」与 **发送前的好友校验**，并支持 **群聊消息**
+> （`1013` 传 `group`，完整接口见 [`api-group.md`](api-group.md)）； **历史记录仍未实现**。
 > 消息先写入 Redis Stream；接收方拉取后必须发送 ACK，服务端通过 `XACKDEL` 确认并 **删除**该消息；未 ACK 的消息会留在
 > PEL，重连后可再次拉取。
 
@@ -17,23 +18,23 @@
 
 ## 1. 能力概览
 
-| 能力               | 状态                                                        |
-|--------------------|-------------------------------------------------------------|
-| 单聊消息发送       | ✅ 已实现（`1013` / `1014`）                                |
-| 发送前好友校验     | ✅ 已实现（Redis `userfriendset_<uid>`，非好友返回 `1022`） |
-| 在线用户新消息通知 | ✅ 已实现（`1022`，同服推送 / 跨服 gRPC 转发）              |
-| 离线消息持久化     | ✅ 已实现（Redis Stream，约保留 7 天）                      |
-| 消息拉取           | ✅ 已实现（`1023` / `1024`）                                |
-| PEL 重投           | ✅ 已实现（拉取时 PEL 优先，重连后可再次拉取未 ACK 消息）   |
-| 确认收到（ACK）    | ✅ 已实现（`1025` / `1026`，`XACKDEL`）                     |
-| 历史记录           | ❌ 未实现（ACK 后消息即被删除）                             |
-| 群聊               | ❌ 未实现（`is_to_group` 恒为 `false`）                     |
+| 能力               | 状态                                                                    |
+|--------------------|-------------------------------------------------------------------------|
+| 单聊消息发送       | ✅ 已实现（`1013` / `1014`）                                            |
+| 发送前好友校验     | ✅ 已实现（Redis `userfriendset_<uid>`，非好友返回 `1022`）             |
+| 在线用户新消息通知 | ✅ 已实现（`1022`，同服推送 / 跨服 gRPC 转发）                          |
+| 离线消息持久化     | ✅ 已实现（Redis Stream，约保留 7 天）                                  |
+| 消息拉取           | ✅ 已实现（`1023` / `1024`）                                            |
+| PEL 重投           | ✅ 已实现（拉取时 PEL 优先，重连后可再次拉取未 ACK 消息）               |
+| 确认收到（ACK）    | ✅ 已实现（`1025` / `1026`，`XACKDEL`）                                 |
+| 历史记录           | ❌ 未实现（ACK 后消息即被删除）                                         |
+| 群聊               | ✅ 已实现（`1013` 传 `group: true`，见 [`api-group.md`](api-group.md)） |
 
 ## 2. TCP 消息一览
 
 | message_id | 名称                             | 方向                    | 说明                                    |
 |------------|----------------------------------|-------------------------|-----------------------------------------|
-| `1013`     | `MESSAGE_TEXT_CHAT_MSG_REQ`      | 客户端 → 服务端         | 发送消息（先做好友校验）                |
+| `1013`     | `MESSAGE_TEXT_CHAT_MSG_REQ`      | 客户端 → 服务端         | 发送消息（先做好友 / 群成员校验）       |
 | `1014`     | `MESSAGE_TEXT_CHAT_MSG_RSP`      | 服务端 → 客户端         | 发送回执（回显 `msg_id`）               |
 | `1022`     | `MESSAGE_NOTIFY_RECEIVE_MESSAGE` | 服务端 → 客户端（推送） | 有新消息（不含内容）                    |
 | `1023`     | `MESSAGE_SYNC_CHAT_MESSAGE_REQ`  | 客户端 → 服务端         | 拉取消息                                |
@@ -91,7 +92,8 @@
   "msg_id": "m-0001",
   "to_uid": "10002",
   "type": "1",
-  "body": "你好"
+  "body": "你好",
+  "group": false
 }
 ```
 
@@ -99,16 +101,20 @@
 |----------|--------|------|------------------------------------------------------------------------------------|
 | `msgid`  | 任意   | 否   | 请求级唯一编号（所有接口通用，见 [`api-tcp.md`](api-tcp.md) §1.1），服务端原样回显 |
 | `msg_id` | string | 是   | **客户端生成**的消息标识，用于回执匹配；服务端原样回显                             |
-| `to_uid` | string | 是   | 接收方 uid                                                                         |
+| `to_uid` | string | 是   | 接收方 uid；`group = true` 时为 **群 id**                                          |
 | `type`   | string | 是   | 消息类型：`1` 文本 / `2` 图片 / `3` 文件 / `4` 表情包                              |
 | `body`   | string | 是   | 消息内容；图片 / 文件 / 表情包的具体编码（URL、文件 ID 等）暂未约定                |
+| `group`  | bool   | 否   | `true` 表示群消息（缺省 `false`）；群聊细节见 [`api-group.md`](api-group.md) §9    |
 
 > `msgid` 与 `msg_id` 是两个不同字段：前者用于 **请求 / 响应配对**（所有接口通用），后者是 **聊天消息业务编号**（只出现在
 > `1013` / `1014`），回包会同时带回两者。
 
 - 发送者取 **当前会话已登录的 uid**（`session->getUserId()`），请求体不需要传 `from_uid`。
-- 服务端在写入消息流之前，会先校验 `to_uid` 是否为当前用户的 **好友**（Redis `userfriendset_<uid>`，见 §11）；
+- 单聊（`group` 缺省 / `false`）在写入消息流之前，会先校验 `to_uid` 是否为当前用户的 **好友**（Redis `userfriendset_<uid>`，见
+  §11）；
   非好友返回 `1022`（`NOT_FRIEND`）， **消息不会写入消息流，也不会向对端推送 `1022` 通知**。
+- 群聊（`group = true`）`to_uid` 传群 id，改为校验 `SISMEMBER chatgroup_<gid>`；不在群同样返回 `1022`，详见
+  [`api-group.md`](api-group.md) §9.1。
 - 好友校验通过后仍不校验登录态（见 §10）。
 - `to_uid` 解析失败、`type` 不是 `1`–`4` → 返回 `1020`。
 
@@ -137,11 +143,11 @@
 | `msgid`  | 任意   | **原样回显**请求中的 `msgid`（宏统一回显），缺失为 `null` |
 | `msg_id` | string | **原样回显**请求中的 `msg_id`；成功与失败都会带           |
 
-| error  | 含义                                                    |
-|--------|---------------------------------------------------------|
-| `0`    | 已写入离线消息流（**不代表对端已收到**）                |
-| `1020` | `to_uid` / `type` 非法                                  |
-| `1022` | `NOT_FRIEND`：`to_uid` 不是当前用户的好友（消息未写入） |
+| error  | 含义                                                                                   |
+|--------|----------------------------------------------------------------------------------------|
+| `0`    | 已写入离线消息流（**不代表对端已收到**）                                               |
+| `1020` | `to_uid` / `type` 非法                                                                 |
+| `1022` | `NOT_FRIEND`：`to_uid` 不是当前用户的好友；`group = true` 时表示不在该群（消息未写入） |
 
 > `msg_id` 不做解析，请求中缺失时回显为空串；回执 **不返回** Redis Stream 生成的 `message_id`（服务端消息编号）。
 
@@ -158,6 +164,8 @@
 - **不含**发送方的 `msg_id`、服务端 `message_id`、发送者、消息类型或内容，仅表示"你有新消息"。
 - 同实例：直接通过会话推送；跨实例：gRPC `ChatService.NotifyChatMessage` 转发到对方实例后推送。
 - 接收方离线（Redis `uip_<to_uid>` 不存在）时不推送；消息仍已写入离线消息流。
+- **系统消息的 `1022`**：群操作写入系统消息（`from_uid = 1`）后都会调用 `notifyMessageSend` 推送 `1022`
+  （创建 / 拉人 / 踢人 / 解散），见 [`api-group.md`](api-group.md) §9.5。
 - 客户端收到后应发送 `1023` 拉取消息。
 
 ## 6. 拉取消息（1023 / 1024）
@@ -186,6 +194,7 @@
   "count": 1,
   "msgs": [
     {
+      "group": false,
       "type": 1,
       "from_uid": "10002",
       "body": "你好",
@@ -200,8 +209,10 @@
 | `error`           | int    | `0` 成功；`1020` `count` 解析失败                            |
 | `count`           | string | 本次返回的消息条数                                           |
 | `msgs`            | array  | 消息列表；**没有消息时不出现该字段**                         |
+| `msgs[].group`    | bool   | `true` 群消息 / `false` 单聊                                 |
+| `msgs[].group_id` | string | 群 id；**仅群消息出现**，单聊不返回该字段                    |
 | `msgs[].type`     | number | 消息类型 `1`–`4`                                             |
-| `msgs[].from_uid` | string | 发送方 uid                                                   |
+| `msgs[].from_uid` | string | 发送方 uid；**系统消息固定为 `"1"`**                         |
 | `msgs[].body`     | string | 消息内容                                                     |
 | `msgs[].id`       | string | 消息编号（Redis Stream ID，`<毫秒>-<序号>`），**ACK 时使用** |
 
@@ -209,7 +220,9 @@
 - PEL 非空时本次只返回 PEL 消息，不混入新消息；ACK 完再拉即进入新消息。
 - 未 ACK 的消息会在后续拉取时 **重复返回**（at-least-once），客户端按 `msgs[].id` 去重。
 - 按 Stream 中的先后顺序返回。
-- 群聊消息当前被跳过（`is_to_group` 恒为 `false`）。
+- 群消息与单聊共用同一消费流，通过 `msgs[].group` 区分，群消息另带 `msgs[].group_id`（见 [`api-group.md`](api-group.md)
+  §9.4）；
+  升级前已入队的群消息没有该字段，客户端需按缺失处理。
 
 ## 7. 确认收到（1025 / 1026）
 
@@ -248,19 +261,24 @@
 
 ## 8. 消息存储（Redis Stream）
 
-| 项                 | 值                                                                                       |
-|--------------------|------------------------------------------------------------------------------------------|
-| Stream key（单聊） | `offlinestream_<to_uid>`                                                                 |
-| Stream key（群聊） | `offlinestream_group_<to_uid>`（**未启用**）                                             |
-| 消费组             | `userxgroup_<uid>`，登录时由 `RedisManager::registUser` 创建（`MKSTREAM`）               |
-| 字段               | `from_uid`（十进制字符串）、`type`（`1`–`4`）、`body`                                    |
-| 消息编号           | Redis Stream 自动生成的 `<毫秒时间戳>-<序号>`                                            |
-| 保留策略           | `XADD ... MINID ~ <now - 7天>-0`，约保留 7 天                                            |
-| 拉取               | 先 `XREADGROUP ... STREAMS <stream> 0`（PEL）；为空再 `... STREAMS <stream> >`（新消息） |
-| 确认               | `XACKDEL <stream> <group> ACKED IDS <n> <ids...>`（需 Redis 8.2+）                       |
+| 项                 | 值                                                                                                           |
+|--------------------|--------------------------------------------------------------------------------------------------------------|
+| Stream key（单聊） | `offlinestream_<to_uid>`                                                                                     |
+| Stream key（群聊） | 按成员逐个写入各自的 `offlinestream_<uid>`（`offlinestream_group_` 已废弃）                                  |
+| 消费组             | `userxgroup_<uid>`，登录时由 `RedisManager::registUser` 创建（`MKSTREAM`）                                   |
+| 字段               | `group`（`f` 单聊 / `y` 群聊）、`group_id`（仅群聊，群 id）、`from_uid`（十进制）、`type`（`1`–`4`）、`body` |
+| 消息编号           | Redis Stream 自动生成的 `<毫秒时间戳>-<序号>`                                                                |
+| 保留策略           | `XADD ... MINID ~ <now - 7天>-0`，约保留 7 天                                                                |
+| 拉取               | 先 `XREADGROUP ... STREAMS <stream> 0`（PEL）；为空再 `... STREAMS <stream> >`（新消息）                     |
+| 确认               | `XACKDEL <stream> <group> ACKED IDS <n> <ids...>`（需 Redis 8.2+）                                           |
 
 - 消息 **无论对端是否在线都会先写入 Stream**，在线与否只影响是否推送 `1022`。
-- 客户端 `msg_id` 只用于发送回执匹配， **不写入 Stream**；落库字段只有 `from_uid` / `type` / `body`。
+- 群消息不写单独的群 Stream，而是给每个群成员各写一条（含发送者本人），因此同一条群消息在各成员流中的 `id` 不相同；
+  群 id 以 `group_id` 字段写入每条消息（见 [`api-group.md`](api-group.md) §9.2）。
+- 客户端 `msg_id` 只用于发送回执匹配， **不写入 Stream**；落库字段只有 `group` / `group_id` / `from_uid` / `type` /
+  `body`。
+- 群操作产生的系统消息以 `from_uid = 1`、`group = y` 写入，格式与普通群消息一致；创建 / 拉人 / 踢人 / 解散后都会
+  推送 `1022`（见 [`api-group.md`](api-group.md) §9.5）。
 - 发送失败（Redis 不可用）只写日志， **不会**反映到 `1014` 的 `error`（见 §10）。
 
 ## 9. gRPC 接口（ChatService.NotifyChatMessage）
@@ -292,19 +310,24 @@ message NotifyChatMessageRsp
 
 ### 10.1 字段类型
 
-| 字段                            | 位置                       | JSON 类型                                    |
-|---------------------------------|----------------------------|----------------------------------------------|
-| `msg_id`                        | `1013` 请求、`1014` 响应   | **string**（原样回显）                       |
-| `to_uid`                        | `1013` 请求                | **string**                                   |
-| `type`                          | `1013` 请求                | **string**（传数字也能被 `asString()` 兼容） |
-| `body`                          | `1013` 请求、`1024` 列表项 | **string**                                   |
-| `count`                         | `1023` 请求                | **string**（`0`–`10`）                       |
-| `count`                         | `1024` 响应                | **number**                                   |
-| `ids`                           | `1025` 请求                | **array\<string\>**（最多 10 个）            |
-| `msgs[].type`                   | `1024` 响应                | **number**                                   |
-| `msgs[].from_uid` / `msgs[].id` | `1024` 响应                | **string**                                   |
-| `from_uid` / `type` / `body`    | Redis Stream 字段          | string（Stream 中统一为字符串）              |
-| `message_id`                    | Redis Stream               | string（`<ms>-<seq>`）                       |
+| 字段                            | 位置                       | JSON 类型                                        |
+|---------------------------------|----------------------------|--------------------------------------------------|
+| `msg_id`                        | `1013` 请求、`1014` 响应   | **string**（原样回显）                           |
+| `to_uid`                        | `1013` 请求                | **string**                                       |
+| `type`                          | `1013` 请求                | **string**（传数字也能被 `asString()` 兼容）     |
+| `group`                         | `1013` 请求                | **bool**（缺省 `false`；非空字符串也会被判为真） |
+| `body`                          | `1013` 请求、`1024` 列表项 | **string**                                       |
+| `msgs[].group`                  | `1024` 响应                | **bool**                                         |
+| `msgs[].group_id`               | `1024` 响应                | **string**（仅群消息出现）                       |
+| `count`                         | `1023` 请求                | **string**（`0`–`10`）                           |
+| `count`                         | `1024` 响应                | **number**                                       |
+| `ids`                           | `1025` 请求                | **array\<string\>**（最多 10 个）                |
+| `msgs[].type`                   | `1024` 响应                | **number**                                       |
+| `msgs[].from_uid` / `msgs[].id` | `1024` 响应                | **string**                                       |
+| `group`                         | Redis Stream 字段          | string（`f` 单聊 / `y` 群聊）                    |
+| `group_id`                      | Redis Stream 字段          | string（仅群聊，群 id）                          |
+| `from_uid` / `type` / `body`    | Redis Stream 字段          | string（Stream 中统一为字符串）                  |
+| `message_id`                    | Redis Stream               | string（`<ms>-<seq>`）                           |
 
 ### 10.2 当前实现注意事项
 
@@ -317,13 +340,17 @@ message NotifyChatMessageRsp
    Redis 不可用时 `SISMEMBER` 失败 → `isFriend` 返回 `false` → 发送方收到 `1022`，而不是 `1013`。
 5. **写入失败被吞掉**：`insertMessageToOffline` 返回 `void`，Redis 写入失败只记日志，`1014` 仍返回 `0`。
 6. **`MESSAGE_NOTIFY_CHAT_MSG_REQ`（`1015`）已定义但未使用**，实际推送用 `MESSAGE_NOTIFY_RECEIVE_MESSAGE`（`1022`），两者不要混淆。
-7. **群聊未实现**：`is_to_group` 恒为 `false`，群聊 Stream（`offlinestream_group_`）不会被写入，拉取时也会跳过群聊消息。
+7. **群聊消息携带群 id**：`group = true` 时按群成员逐个写入各自的 `offlinestream_<uid>`（字段 `group=y`、
+   `group_id=<gid>`），`1024` 中群消息带 `msgs[].group_id`；升级前已入队的历史群消息没有该字段。群聊的其它问题见
+   [`api-group.md`](api-group.md) §11。
 8. **消息体大小受单帧限制**：`body_len` 上限为 `MAX_LENGTH`（2048 字节），超长消息会在会话层被判定为非法帧并断开连接。
 9. **`body` / `msg_id` / `ids[]` 未做类型校验**：`root["body"].asString()`、`root["msg_id"].asString()`、`id.asString()`
    在元素为数组 / 对象时会抛异常，异常会逃逸逻辑线程（与其它 handler 的同类问题）。
 10. **单次上限 10 条为硬编码**：拉取 `count > 10` 或确认 `ids` 数量 `> 10` 均返回 `1020`，客户端需自行分批。
 11. **拉取 / ACK 失败被吞掉**：`getMessageFromOffline` 在 Redis 异常时返回空列表，`1024` 仍返回 `error = 0`、`count = 0`；
     `ackAndDelChatMessages` 失败也不影响 `1026` 的 `error = 0`。
+12. **系统消息不带独立标记**：群操作的系统消息 `from_uid` 固定为 `"1"`，客户端需按该 uid 识别；服务端没有额外的
+    `system` 字段。
 
 ## 11. 好友关系校验（Redis Set）
 

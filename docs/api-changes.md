@@ -2,6 +2,101 @@
 
 > 按批次记录，最新批次在前。基线与日期以提交记录为准。
 
+# 批次 2026-10-23（基线 `15b4d72`）：群聊
+
+> 本批包含两次提交：`6ca1a5c`（群聊创建 / 拉人 / 踢人 / 解散 / 群消息收发）与 `15b4d72`（获取群成员信息）。
+> 完整字段、流程与已知问题见 [`api-group.md`](api-group.md)。
+>
+> 本批之后已修复：拉人入群的成员 uid 解析目标改为 `member_uid`；解散成功后 `DEL chatgroup_<gid>` 清理 Redis 集合；
+> 群消息在 Stream 与 `1024` 回包中携带 `group_id`；通知逻辑抽到 `notifyMessageSend`，群聊遍历全部成员且不再提前退出；
+> 创建群聊改用 `CALL create_group(...)`；群操作写入系统消息（`from_uid = 1`），踢人 / 解散改为先发系统消息并推送 `1022`
+> ，再更新成员集合。
+
+## 1. 变更汇总
+
+| 类别       | 内容                                                                                                                                                  |
+|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **新增**   | TCP `1033`–`1042`：创建群聊、拉人入群、踢人、解散、获取群成员信息                                                                                     |
+| **新增**   | 错误码 `1023 GROUP_ID_INVALID`、`1024 NO_POWER`、`1025 GROUP_FULLED`（预留未使用）                                                                    |
+| **新增**   | Redis 群成员集合 `chatgroup_<gid>`（Set，无 TTL；解散成功时 `DEL`）                                                                                   |
+| **变更**   | `1013` 新增布尔字段 `group`：`true` 时 `to_uid` 传群 id，用 `SISMEMBER chatgroup_<gid>` 校验成员（不再校验好友）                                      |
+| **变更**   | `1024` 的 `msgs[]` 新增布尔字段 `group` 与群 id 字段 `group_id`；群消息与单聊共用同一条消费流 `offlinestream_<uid>`                                   |
+| **变更**   | 群消息投递方式：按 `SMEMBERS chatgroup_<gid>` 给 **每个成员（含发送者）** 各写一条 `offlinestream_<uid>`，Stream 字段新增 `group=y`、`group_id=<gid>` |
+| **新增**   | 群操作系统消息：创建 / 拉人 / 踢人 / 解散成功后以 `from_uid = 1` 写入群消息流（先发消息并推送 `1022`，再更新成员集合；被踢者 / 解散成员也能收到）     |
+| **变更**   | 通知逻辑抽到 `notifyMessageSend`：群聊遍历全部成员，离线 / 本实例无会话均 `continue`，不再提前退出；系统消息也会触发 `1022`                           |
+| **变更**   | 创建群聊的存储过程由 `update_user_info` 改为 `create_group`                                                                                           |
+| **废弃**   | 独立群离线流 `offlinestream_group_<gid>`（宏被注释，代码不再使用）                                                                                    |
+| **未实现** | 主动退群、群列表、群资料修改、设置管理员、入群验证 / 邀请通知、群消息历史                                                                             |
+
+## 2. TCP 消息
+
+| message_id | 名称                              | 方向            | 本批变化                           |
+|------------|-----------------------------------|-----------------|------------------------------------|
+| `1013`     | `MESSAGE_TEXT_CHAT_MSG_REQ`       | 客户端 → 服务端 | 新增 `group` 字段与群成员校验      |
+| `1014`     | `MESSAGE_TEXT_CHAT_MSG_RSP`       | 服务端 → 客户端 | 群消息发送回执（格式不变）         |
+| `1024`     | `MESSAGE_SYNC_CHAT_MESSAGE_RSP`   | 服务端 → 客户端 | `msgs[]` 新增 `group` / `group_id` |
+| `1033`     | `MESSAGE_GROUP_CREATE_REQ`        | 客户端 → 服务端 | **新增枚举值**                     |
+| `1034`     | `MESSAGE_GROUP_CREATE_RSP`        | 服务端 → 客户端 | **新增枚举值**                     |
+| `1035`     | `MESSAGE_GROUP_ADD_MEMBERS_REQ`   | 客户端 → 服务端 | **新增枚举值**                     |
+| `1036`     | `MESSAGE_GROUP_ADD_MEMBERS_RSP`   | 服务端 → 客户端 | **新增枚举值**                     |
+| `1037`     | `MESSAGE_GROUP_KICK_MEMBER_REQ`   | 客户端 → 服务端 | **新增枚举值**                     |
+| `1038`     | `MESSAGE_GROUP_KICK_MEMBER_RSP`   | 服务端 → 客户端 | **新增枚举值**                     |
+| `1039`     | `MESSAGE_GROUP_DISMISS_REQ`       | 客户端 → 服务端 | **新增枚举值**                     |
+| `1040`     | `MESSAGE_GROUP_DISMISS_RSP`       | 服务端 → 客户端 | **新增枚举值**                     |
+| `1041`     | `MESSAGE_GET_GROUP_USER_INFO_REQ` | 客户端 → 服务端 | **新增枚举值**                     |
+| `1042`     | `MESSAGE_GET_GROUP_USER_INFO_RSP` | 服务端 → 客户端 | **新增枚举值**                     |
+
+## 3. 请求字段速查
+
+| 接口                  | 请求字段                                     | 成功回包字段         |
+|-----------------------|----------------------------------------------|----------------------|
+| 创建群聊 `1033`       | `name`、`avator`（拼写如此）、`announcement` | `group_id`（string） |
+| 拉人入群 `1035`       | `group_id`、`members`（array\<string\>）     | 仅 `error`           |
+| 踢人 `1037`           | `group_id`、`uid`                            | 仅 `error`           |
+| 解散 `1039`           | `group_id`                                   | 仅 `error`           |
+| 获取群成员信息 `1041` | `gid`（**不是 `group_id`**）                 | `mb_infos`（array）  |
+
+- 群消息发送（`1013`）新增 `group`（bool，缺省 `false`）；`to_uid` 在群聊时传群 id。
+- 所有响应都带 `msgid` 原样回显；未登录返回 `1011`。
+
+## 4. 主要错误码映射
+
+| 接口       | 存储过程返回                        | 对外 `error`                                   |
+|------------|-------------------------------------|------------------------------------------------|
+| 创建群聊   | `-1` / 其它                         | `1011` / `1013`                                |
+| 拉人入群   | `-1` / `-2` / `-3` / `-4` / 其它    | `1023` / `1024` / 跳过继续 / `1013` / `1013`   |
+| 踢人       | `-1` / `-2` `-4` `-5` / `-3` / 其它 | `1023` / `1024` / `1014` / `1013`              |
+| 解散       | `-1` / `-2` / 其它                  | `1013`（被覆盖，预期 `1023`）/ `1024` / `1013` |
+| 群成员信息 | Redis 不在群 / MySQL 失败           | `1024` / `1013`                                |
+
+## 5. 群消息存储变化
+
+| 项       | 本批之前                              | 本批之后                                                                 |
+|----------|---------------------------------------|--------------------------------------------------------------------------|
+| 群消息流 | `offlinestream_group_<gid>`（未启用） | 每个成员各自的 `offlinestream_<uid>`（`group=y`），一次 pipeline 批量写  |
+| 消息字段 | `from_uid` / `type` / `body`          | 新增 `group`（`f` 单聊 / `y` 群聊）                                      |
+| 群 id    | ——                                    | 以 `group_id` 字段写入每条群消息，`1024` 的 `msgs[].group_id` 带回       |
+| 发送者   | ——                                    | 发送者本人也在成员集合内，会收到自己发出的群消息                         |
+| 系统消息 | ——                                    | 创建 / 拉人 / 踢人 / 解散写入 `from_uid=1` 的文本消息，并全部推送 `1022` |
+
+## 6. 内部变更（不影响对外契约）
+
+| 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/public/const.h`：新增 `ErrorCode::GROUP_ID_INVALID` / `NO_POWER` / `GROUP_FULLED`，新增 `MESSAGE_GROUP_*`（`1033`–`1040`）与 `MESSAGE_GET_GROUP_USER_INFO_*`（`1041` / `1042`）                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `src/chatServer/LogicSystem.cpp`：新增 `createChatGroupHandler` / `chatGroupAddMembersHandler` / `chatGroupKickMemberHandler` / `chatGroupDismiss`（后改名 `chatGroupDismissHandler`）/ `chatGroupGetUserInfosHandler` 并在 `registerCallBacks` 注册；`sendTextMessageHandler` 增加 `group` 分支、群成员校验与按成员扇出；通知逻辑抽到 `notifyMessageSend(is_group, to_id)`，群聊遍历全部成员、不再提前退出；`syncChatMessageHandler` 回包增加 `group` / `group_id`；群操作写入 `from_uid=1` 的系统消息并调用通知（踢人 / 解散为先发消息并通知、后改成员集合）；新增未使用的 `sendSystemMessage` 辅助函数 |
+| `src/public/src/RedisManager_boost.*`：新增 `insertToGroup` / `getUsersFromGroup` / `kickUserFromGroup` / `removeGroup` / `isInGroup` 与 `setMembers`、`streamsAdd`（pipeline 批量 `XADD`）；群消息写入 `group_id`，`getMessageFromOffline` 解析回 `Message::to_uid`；`GROUP_OFFLINE_MESSAGE_STREAM` 宏注释废弃，新增 `CHAT_GROUP_PERFIX`（`chatgroup_`）                                                                                                                                                                                                                                                 |
+| `src/public/MessageType.h`：`chat_message::Message::to_uid` 语义明确为「单聊接收方 uid / 群聊群 id」，并补默认初始化                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `src/public/sql/mysql/Mysql_boost.*`：新增 `createChatGroup`（`CALL create_group(...)`）/ `addGroupMember` / `kickGroupMember` / `dismissGroup` / `getGroupMemberInfos`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `src/public/data/UserInfo.h`：新增 `struct GroupUserInfo`（`nick_g` / `joinedAt` / `uid` / `role`）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+## 7. 已知限制（摘要）
+
+1. **解散时群不存在返回 `1013`**：错误码被后续 `else` 覆盖（§7.3）。
+2. **解散清理 key 用请求原串**：带前导零的 `group_id` 会漏删真实 key；`DEL` 失败时回包缺 `error`（§7.3）。
+3. **群成员集合无 TTL、无重建**：Redis 重启 / 清空后群聊全部失效（§10）。
+4. **无主动退群、群列表、群资料修改、管理员设置、入群通知**；群人数上限硬编码 500。
+
 # 批次 2026-10-21（基线 `5524366`）：好友备注与用户资料编辑
 
 ## 1. 变更汇总
@@ -141,7 +236,7 @@
 - 客户端应按 `msgid` 匹配请求与响应，不要依赖到达顺序；同一连接内服务端串行处理，回包顺序与请求一致。
 - 服务端主动推送（`1009` / `1012` / `1022`）不是请求的响应， **不带 `msgid`**。
 - 与 `message_id`、`msg_id` 的区别：
-    - `message_id`：帧头里的消息类型编号（`1001`–`1032`）；
+    - `message_id`：帧头里的消息类型编号（`1001`–`1042`）；
     - `msgid`：请求级唯一编号，所有接口通用；
     - `msg_id`：聊天消息业务编号，仅 `1013` / `1014` 使用（发送回执仍会单独回显，见 [`api-chat.md`](api-chat.md)）。
 - 本批之前按业务字段回显的编号（删除好友回包的 `uid`、发送聊天回包的 `msg_id`）保持不变，可能与 `msgid` 同时出现。

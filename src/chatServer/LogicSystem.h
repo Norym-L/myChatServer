@@ -17,6 +17,11 @@
 
 #include "data/UserInfo.h"
 
+namespace chat_message
+{
+struct Message;
+}
+
 namespace net = boost::asio;
 
 class LogicNode;
@@ -71,6 +76,9 @@ private:
     net::awaitable<void> chatGroupGetUserInfosHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;
 
 
+    // 系统消息
+    static net::awaitable<void> sendSystemMessage(chat_message::Message message);
+    net::awaitable<void> notifyMessageSend(bool is_group, std::uint64_t to_id) const;
     [[nodiscard]] static bool GrpcSendFriendRequestToOther(std::uint64_t add_friend_request_id, std::uint64_t to_uid, const std::string& user_ip);
     [[nodiscard]] static bool GrpcAuthFriendRequestAndNotifyToOther(std::uint64_t sender_uid, std::uint64_t add_friend_request_id, int state, const std::string& user_ip); // FriendApplyStatus
     [[nodiscard]] static bool GrpcNotifyReceiveMessageToOther(std::uint64_t to_uid, const std::string& user_ip);

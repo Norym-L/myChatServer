@@ -121,6 +121,7 @@ net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message 
                 stream_names.emplace_back(USER_OFFLINE_MESSAGE_STREAM + member_uid);
                 std::vector<std::pair<std::string, std::string> > value = {
                     {"group", "y"},
+                    {"group_id", std::to_string(message.to_uid)},
                     {"from_uid", std::to_string(message.from_uid)},
                     {"type", std::to_string(message.type)},
                     {"body", message.body}
@@ -173,6 +174,7 @@ net::awaitable<std::vector<chat_message::Message> > RedisManager::getMessageFrom
         for (const auto& [key, value]: fields)
         {
             if (key == "group") value == "f" ? message.is_to_group = false : message.is_to_group = true;
+            else if (key == "group_id") message.to_uid = std::stoull(value);
             else if (key == "from_uid") message.from_uid = std::stoull(value);
             else if (key == "type") message.type = static_cast<chat_message::Type>(std::stoi(value));
             else if (key == "body") message.body = value;

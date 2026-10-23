@@ -28,13 +28,25 @@
 | `1019` | `USER_OUTLINE`                       | 目标用户离线（本实例无该用户会话）                    | gRPC `ChatService.NotifyAddFriend` / `ReplyAddFriend`                          |
 | `1020` | `REQUEST_VALUE_INVALID`              | 客户端请求数据非法（uid / 编号 / state 解析失败）     | TCP 登录、添加好友、同步申请、好友验证、在线查询、设置备注响应                 |
 | `1021` | `DOUBLE_HANDLE_REQUEST`              | 重复处理请求（该好友申请已被处理过）                  | TCP 好友验证响应（`1011`）                                                     |
-| `1022` | `NOT_FRIEND`                         | 不是好友关系                                          | TCP 发送聊天消息响应（`1014`）、删除好友响应（`1028`）、设置备注回包（`1030`） |
+| `1022` | `NOT_FRIEND`                         | 不是好友关系；群消息发送时表示不在群内                | TCP 发送聊天消息响应（`1014`）、删除好友响应（`1028`）、设置备注回包（`1030`） |
+| `1023` | `GROUP_ID_INVALID`                   | 群 id 非法或群不存在                                  | TCP 拉人（`1036`）、踢人（`1038`）、解散（`1040`，群不存在时实际返回 `1013`）  |
+| `1024` | `NO_POWER`                           | 权限不足（非群主 / 管理员，或不在群内）               | TCP 拉人（`1036`）、踢人（`1038`）、解散（`1040`）、群成员信息（`1042`）       |
+| `1025` | `GROUP_FULLED`                       | 群已满（**已定义但未使用**，群满实际返回 `1013`）     | ——                                                                             |
 
-> `enum MessageType` 的 TCP 消息编号（`1001`–`1032`）与这里的 `ErrorCode` 是 **两套独立枚举**，数值相同不代表同一含义
+> `enum MessageType` 的 TCP 消息编号（`1001`–`1042`）与这里的 `ErrorCode` 是 **两套独立枚举**，数值相同不代表同一含义
 > （例如错误码 `1022` 是 `NOT_FRIEND`，而消息编号 `1022` 是 `MESSAGE_NOTIFY_RECEIVE_MESSAGE`）。
-> 好友相关接口见 [`api-friend.md`](api-friend.md)，聊天消息见 [`api-chat.md`](api-chat.md)。
+> 好友相关接口见 [`api-friend.md`](api-friend.md)，聊天消息见 [`api-chat.md`](api-chat.md)，群聊见 [
+`api-group.md`](api-group.md)。
 
 ## 2. 变更记录（最新在前）
+
+**2026-10-23（基线 `15b4d72`）**
+
+- **新增** `1023 GROUP_ID_INVALID`、`1024 NO_POWER`、`1025 GROUP_FULLED`（后者为预留，当前未返回）。
+- `1022 NOT_FRIEND` 的返回范围扩展到群消息发送：`group = true` 时不在群内即返回 `1022`。
+- `1014 USER_NOT_FOUND` 的返回范围扩展到踢人：被踢者不在群内。
+- **映射缺陷**：拉人时群已满（存储过程 `-4`）与解散时群不存在（`-1`）都落到 `1013 SERVICE_UNAVAILABLE`，
+  见 [`api-group.md`](api-group.md) §11。
 
 **2026-10-21（基线 `5524366`）**
 

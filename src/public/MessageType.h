@@ -15,9 +15,9 @@ enum Type
 
 struct Message
 {
-    Type type;
-    std::uint64_t from_uid;
-    std::uint64_t to_uid;
+    Type type{};
+    std::uint64_t from_uid{};
+    std::uint64_t to_uid{}; // 单聊为接收方 uid，群聊为群 id
     bool is_to_group{false};
     std::string body;
     std::string message_id{};
