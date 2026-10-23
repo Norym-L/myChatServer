@@ -5,7 +5,7 @@
 #include <vector>
 #include <map>
 
-#include "Singleton.h"
+#include <Singleton.h>
 
 /// 底层键值对
 struct SectionInfo

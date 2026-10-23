@@ -85,6 +85,7 @@ enum MessageType : std::uint16_t
     MESSAGE_GET_GROUP_INFO_RSP,       //获取群聊信息回包
     MESSAGE_GROUP_INFO_CHANGE_REQ,    //修改群聊信息
     MESSAGE_GROUP_INFO_CHANGE_RSP,    //修改群聊信息
+    MESSAGE_CHAT_MESSAGE,             //服务器主动推送消息
 };
 
 #include <fmt/format.h>

@@ -10,6 +10,7 @@
 
 #include "CServer.h"
 #include "LogicSystem.h"
+#include "MessageScheduler.h"
 #include <AsioIOServicePool.h>
 
 #include "RedisManager.h"
@@ -27,6 +28,7 @@ int main(int argc, char* argv[])
         // 先构造 RedisManager，再构造 LogicSystem：静态析构顺序与之相反，保证 Redis 连接最后销毁
         RedisManager::GetInstance();
         MySqlManager::GetInstance();
+        MessageScheduler::GetInstance();
 
         auto& config = ConfigManager::GetInstance();
         spdlog::default_logger()->set_level(static_cast<spdlog::level::level_enum>(std::stoi(config["LoggerLevel"]["default"])));
@@ -89,6 +91,7 @@ int main(int argc, char* argv[])
 
         SPDLOG_INFO("[{}] starting as {}, listen on port: {}", self_section, name, port);
         CServer server(io_context, port, name);
+        MessageScheduler::GetInstance().init(&server, logic.getIoContext());
         io_context.run();
 
         // 优雅退出：先摘除注册记录（存活 key / 连接数 key / 服务列表字段），再关连接池

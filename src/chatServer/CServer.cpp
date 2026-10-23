@@ -30,7 +30,7 @@ void CServer::clearSession(const std::string& session_id)
         if (const auto it = m_sessions.find(session_id); it != m_sessions.end())
         {
             user_id = it->second->getUserId();
-            session = std::move(it->second);   // 把析构推迟到锁外
+            session = std::move(it->second); // 把析构推迟到锁外
             m_sessions.erase(it);
         }
     }
@@ -42,6 +42,16 @@ void CServer::clearSession(const std::string& session_id)
         ServerRegistry::GetInstance().removeConnection();
         UserManager::GetInstance().removeUserSession(user_id, session_id);
     }
+}
+
+std::shared_ptr<CSession> CServer::getSession(const std::string& uid)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (const auto it = m_sessions.find(uid); it != m_sessions.end())
+    {
+        return it->second;
+    }
+    return nullptr;
 }
 
 void CServer::handleAccept(std::shared_ptr<CSession> new_session, const boost::system::error_code& error_code)

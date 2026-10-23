@@ -180,6 +180,22 @@ void CSession::sendFriendRequestResult(const std::uint64_t add_friend_request_id
     send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_NOTIFY_AUTH_FRIEND_REQ);
 }
 
+void CSession::sendMessage(chat_message::Message message)
+{
+    Json::Value return_value;
+    return_value["group"] = message.is_to_group;
+    if (message.is_to_group && message.to_uid != 0) // 升级前写入的群消息没有 group_id
+    {
+        return_value["group_id"] = std::to_string(message.to_uid);
+    }
+    return_value["type"] = message.type;
+    return_value["from_uid"] = std::to_string(message.from_uid);
+    return_value["body"] = message.body;
+    return_value["time"] = message.message_id; // redis 自动生成的唯一消息id（毫秒时间戳-序列号）
+    const std::string return_str = return_value.toStyledString();
+    send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_MESSAGE);
+}
+
 void CSession::notifyReceiveMessage()
 {
     Json::Value return_value;

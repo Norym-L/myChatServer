@@ -8,6 +8,8 @@
 
 #include <const.h>
 
+#include "MessageType.h"
+
 using boost::asio::ip::tcp;
 
 namespace net = boost::asio;
@@ -54,6 +56,8 @@ public:
      * @param state 状态 1接受 2拒绝
      */
     void sendFriendRequestResult(std::uint64_t add_friend_request_id, int state);
+
+    void sendMessage(chat_message::Message);
 
     void notifyReceiveMessage();
 

@@ -1,7 +1,7 @@
 #ifndef GATESERVER_CSERVER_H
 #define GATESERVER_CSERVER_H
 
-#include <map>
+#include <unordered_map>
 #include <mutex>
 #include <boost/asio.hpp>
 
@@ -19,6 +19,9 @@ public:
 
     std::string getSelfServerName() { return m_name; }
 
+    // 可能刚返回就被踢出服务器导致 session 无效但存在
+    std::shared_ptr<CSession> getSession(const std::string& uid);
+
 private:
     void handleAccept(std::shared_ptr<CSession> new_session, const boost::system::error_code& error_code);
     void startAccept();
@@ -26,7 +29,7 @@ private:
     boost::asio::io_context& m_ioContext;
     std::uint16_t m_port;
     tcp::acceptor m_acceptor;
-    std::map<std::string, std::shared_ptr<CSession> > m_sessions;
+    std::unordered_map<std::string, std::shared_ptr<CSession> > m_sessions;
     std::mutex m_mutex;
     std::string m_name;
 };

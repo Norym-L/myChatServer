@@ -8,6 +8,7 @@
 
 #include "ConfigManager.h"
 #include "MessageType.h"
+#include "utils/UidCodec.h"
 
 net::awaitable<bool> RedisManager::registUser(const std::uint64_t uid, std::string server_name)
 {
@@ -93,6 +94,45 @@ net::awaitable<void> RedisManager::setUserBaseInfo(const std::uint64_t uid, cons
     co_await set(USER_BASE_INFO + std::to_string(uid), root.toStyledString(), 24 * 60 * 60);
 }
 
+net::awaitable<void> RedisManager::sendMessage(chat_message::Message message)
+{
+    try
+    {
+        if (!message.is_to_group)
+        {
+            const auto ip = co_await isUserOnLine(message.to_uid);
+            if (ip.has_value())
+            {
+                co_await streamAdd(ONLINE_MESSAGE_STREAM + ip.value(),
+                                   {
+                                       {"group", message.is_to_group ? "y" : "f"},
+                                       {"from_uid", std::to_string(message.from_uid)},
+                                       {"type", std::to_string(message.type)},
+                                       {"body", message.body}
+                                   });
+            }
+            else
+            {
+                co_await insertMessageToOffline(std::move(message));
+            }
+        }
+        else
+        {
+            const auto uids = co_await getUsersFromGroup(message.to_uid);
+            for (const auto& uid: uids)
+            {
+                chat_message::Message msg = message;
+                (void) uid_codec::ParseUid(uid, msg.to_uid);
+                co_await sendMessage(std::move(msg));
+            }
+        }
+    }
+    catch (std::exception& e)
+    {
+        SPDLOG_WARN("[redis] redis insert message to offline failed, error: {}", e.what());
+    }
+}
+
 net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message message)
 {
     try
@@ -109,6 +149,7 @@ net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message 
         }
         else // 群聊
         {
+            assert("不可能还有群聊消息群聊");
             const auto user_strs = co_await getUsersFromGroup(message.to_uid);
             if (user_strs.empty()) { co_return; }
             std::vector<std::string> stream_names;
@@ -552,13 +593,18 @@ net::awaitable<void> RedisManager::streamCreateGroup(std::string stream_name, st
     co_return;
 }
 
-net::awaitable<std::vector<StreamResult> > RedisManager::streamReadGroup(std::string group_name, std::string consumer, std::string stream_name, const MessageReadMode mode, const int64_t count) const
+net::awaitable<std::vector<StreamResult> > RedisManager::streamReadGroup(std::string group_name, std::string consumer, std::string stream_name, const MessageReadMode mode, const int64_t count, const int64_t bolck) const
 {
     std::vector<std::string> args;
     args.reserve(8);
     args.emplace_back("GROUP");
     args.emplace_back(std::move(group_name));
     args.emplace_back(std::move(consumer));
+    if (bolck >= 0)
+    {
+        args.emplace_back("BLOCK");
+        args.emplace_back(std::to_string(bolck));
+    }
     args.emplace_back("COUNT");
     args.emplace_back(std::to_string(count));
     args.emplace_back("STREAMS");

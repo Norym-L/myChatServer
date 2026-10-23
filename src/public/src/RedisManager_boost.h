@@ -74,6 +74,7 @@ public:
     net::awaitable<void> insert(std::vector<std::shared_ptr<UserInfo> > user_infos, long ex = 7 * 24 * 60 * 60);
     [[nodiscard]] net::awaitable<std::optional<UserInfo> > getUserInfo(std::uint64_t uid);
     net::awaitable<void> setUserBaseInfo(std::uint64_t uid, UserInfo user_info);
+    net::awaitable<void> sendMessage(chat_message::Message message);
     net::awaitable<void> insertMessageToOffline(chat_message::Message message);
     net::awaitable<void> ackAndDelChatMessages(std::uint64_t to_uid, std::vector<std::string> message_ids);
     [[nodiscard]] net::awaitable<std::vector<chat_message::Message> > getMessageFromOffline(std::uint64_t to_uid, std::int64_t count = 1, MessageReadMode mode = MessageReadMode::New) const;
@@ -111,7 +112,7 @@ public:
     [[nodiscard]] net::awaitable<std::string> streamAdd(std::string stream_name, std::vector<std::pair<std::string, std::string> > field_values, bool make_stream = true);
     [[nodiscard]] net::awaitable<std::vector<std::string> > streamsAdd(std::vector<std::string> stream_names, std::vector<std::vector<std::pair<std::string, std::string> > > field_values, bool make_stream = true);
     net::awaitable<void> streamCreateGroup(std::string stream_name, std::string group_name, std::int64_t start_at = 0, bool make_stream = true) const;
-    [[nodiscard]] net::awaitable<std::vector<StreamResult> > streamReadGroup(std::string group_name, std::string consumer, std::string stream_name, MessageReadMode mode = MessageReadMode::New, int64_t count = 1) const;
+    [[nodiscard]] net::awaitable<std::vector<StreamResult> > streamReadGroup(std::string group_name, std::string consumer, std::string stream_name, MessageReadMode mode = MessageReadMode::New, int64_t count = 1, int64_t bolck = -1) const;
     // policy:  "KEEPREF" | "DELREF" | "ACKED" 返回值：每个id的情况 1 删除， -1 不存在， 2 确认但未删除
     [[nodiscard]] net::awaitable<std::vector<std::int64_t> > streamAckDel(std::string stream_name, std::string group_name, std::vector<std::string> ids, std::string policy = "ACKED");
     [[nodiscard]] net::awaitable<PendingSummary> streamPending(std::string stream_name, std::string group_name) const;
@@ -137,7 +138,7 @@ public:
         return net::co_spawn(*m_ioContext, std::move(op), net::use_future).get();
     }
 
-private:
+protected:
     RedisManager();
     ~RedisManager();
 
@@ -428,6 +429,8 @@ private:
         return results;
     }
 };
+
+#define ONLINE_MESSAGE_STREAM "onlinechatmsgstream_" //<chat server name> 用户在线消息队列，所有的消息都会推送至此进行分流
 
 #define CODE_PREFIX "code_"
 #define USER_IP_PERFIX "uip_"

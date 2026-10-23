@@ -780,7 +780,7 @@ net::awaitable<void> LogicSystem::sendTextMessageHandler(const std::shared_ptr<C
 
     return_value["error"] = ErrorCode::SUCCESS;
 
-    co_await notifyMessageSend(is_group, to_uid);
+    // co_await notifyMessageSend(is_group, to_uid);
 }
 
 net::awaitable<void> LogicSystem::syncUserFriendList(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -996,7 +996,7 @@ net::awaitable<void> LogicSystem::createChatGroupHandler(const std::shared_ptr<C
         .body        = "群聊 " + std::to_string(value) + " 已创建",
         .message_id  = {}
     };
-    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_group_created_msg));
+    co_await RedisManager::GetInstance().sendMessage(std::move(system_group_created_msg));
     return_value["error"] = ErrorCode::SUCCESS;
     co_await notifyMessageSend(true, value);
 }
@@ -1051,7 +1051,7 @@ net::awaitable<void> LogicSystem::chatGroupAddMembersHandler(const std::shared_p
         .message_id  = {}
     };
     co_await RedisManager::GetInstance().insertToGroup(group_id, std::move(added_members));
-    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_add_member_msg));
+    co_await RedisManager::GetInstance().sendMessage(std::move(system_add_member_msg));
     return_value["error"] = ErrorCode::SUCCESS;
     co_await notifyMessageSend(true, group_id);
 }
@@ -1100,7 +1100,7 @@ net::awaitable<void> LogicSystem::chatGroupKickMemberHandler(const std::shared_p
         .body        = session->getUserId() == uid ? root["uid"].asString() + " 退出了群聊" : "踢出了 " + root["uid"].asString(),
         .message_id  = {}
     };
-    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_kick_member_msg));
+    co_await RedisManager::GetInstance().sendMessage(std::move(system_kick_member_msg));
     co_await notifyMessageSend(true, group_id);
     co_await RedisManager::GetInstance().kickUserFromGroup(group_id, root["uid"].asString());
     return_value["error"] = ErrorCode::SUCCESS;
@@ -1142,7 +1142,7 @@ net::awaitable<void> LogicSystem::chatGroupDismissHandler(const std::shared_ptr<
         .body        = "该群聊已解散",
         .message_id  = {}
     };
-    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(system_group_dismiss_msg));
+    co_await RedisManager::GetInstance().sendMessage(std::move(system_group_dismiss_msg));
     co_await notifyMessageSend(true, group_id);
     co_await RedisManager::GetInstance().del({CHAT_GROUP_PERFIX + root["group_id"].asString()});
     return_value["error"] = ErrorCode::SUCCESS;
@@ -1264,7 +1264,7 @@ net::awaitable<void> LogicSystem::chatGroupChangeInfoHandler(const std::shared_p
 net::awaitable<void> LogicSystem::sendSystemMessage(chat_message::Message message)
 {
     message.from_uid = 1; // 1 是系统uid
-    co_await RedisManager::GetInstance().insertMessageToOffline(std::move(message));
+    co_await RedisManager::GetInstance().sendMessage(std::move(message));
 }
 
 net::awaitable<void> LogicSystem::notifyMessageSend(const bool is_group, const std::uint64_t to_id) const
