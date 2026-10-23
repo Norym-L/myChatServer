@@ -40,7 +40,7 @@ void CServer::clearSession(const std::string& session_id)
     {
         // 已登录会话断开：连接数 -1（会话已被移出 m_sessions，重复 clearSession 不会再次命中，正好抵消登录时的 +1）
         ServerRegistry::GetInstance().removeConnection();
-        UserManager::GetInstance().removeUserSession(user_id);
+        UserManager::GetInstance().removeUserSession(user_id, session_id);
     }
 }
 

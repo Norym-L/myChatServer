@@ -192,8 +192,9 @@ void CSession::close()
 {
     if (m_userId != 0)
     {
-        // Redis 命令只能由逻辑线程发起：这里只投递任务，不阻塞连接线程
-        LogicSystem::GetInstance().offlineUser(m_userId);
+        // Redis 命令只能由逻辑线程发起：这里只投递任务，不阻塞连接线程。
+        // 带上 sessionId：旧连接晚于新登录断开时，不能删掉新会话的 uip_<uid>。
+        LogicSystem::GetInstance().offlineUser(m_userId, m_sessionId);
     }
     // socket 为共享资源：send() 会在逻辑线程发起 async_write，关闭操作必须与之互斥，避免并发操作同一 socket
     std::lock_guard<std::mutex> lock(m_sendMutex);

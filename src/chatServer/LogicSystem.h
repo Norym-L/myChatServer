@@ -41,14 +41,15 @@ public:
     /// 逻辑线程的 io_context：同时承载 Redis 连接，业务协程与 Redis 命令都跑在这一条线程上
     net::io_context& getIoContext() { return m_ioContext; }
     /// 用户断开连接：异步删除在线状态 key（不等 30s TTL 自然过期）
-    void offlineUser(std::uint64_t uid);
+    /// session_id 用于区分「哪条连接断开」，避免旧连接把新连接的在线状态一起清掉
+    void offlineUser(std::uint64_t uid, const std::string& session_id);
     // 获取用户信息
     static net::awaitable<std::shared_ptr<UserInfo> > GetBaseInfo(std::uint64_t uid);
 
 private:
     LogicSystem();
     net::awaitable<void> dealMessage();
-    static net::awaitable<void> RemoveOnlineKey(std::uint64_t uid);
+    static net::awaitable<void> RemoveOnlineKey(std::uint64_t uid, std::string session_id, std::string server_name);
 
     void registerCallBacks();
     net::awaitable<void> loginHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const;

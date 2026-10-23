@@ -2,6 +2,8 @@
 
 #include <utility>
 
+#include "../net/CSession.h"
+
 UserManager::~UserManager()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -27,13 +29,19 @@ void UserManager::setUserSession(const std::uint64_t uid, std::shared_ptr<CSessi
     m_uidToSession[uid] = std::move(session);
 }
 
-void UserManager::removeUserSession(const std::uint64_t uid)
+void UserManager::removeUserSession(const std::uint64_t uid, const std::string& session_id)
 {
-    // TODO 更新redis中的服务器人数
-    const auto uid_str = std::to_string(uid);
-    // 可能在本服务器找不到key
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const auto it = m_uidToSession.find(uid);
+    if (it == m_uidToSession.end())
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_uidToSession.erase(uid);
+        return;
     }
+    // uid 可能已经换了新会话（旧连接晚于新登录才被服务端发现断开）：
+    // 这时只允许断开的那条会话清理自己，不能把新会话的映射删掉。
+    if (it->second && it->second->getSessionId() != session_id)
+    {
+        return;
+    }
+    m_uidToSession.erase(it);
 }

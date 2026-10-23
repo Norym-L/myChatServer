@@ -76,16 +76,35 @@ void LogicSystem::postMessageToQueue(const std::shared_ptr<LogicNode>& logic_nod
     }
 }
 
-void LogicSystem::offlineUser(const std::uint64_t uid)
+void LogicSystem::offlineUser(const std::uint64_t uid, const std::string& session_id)
 {
-    net::co_spawn(m_ioContext, RemoveOnlineKey(uid), net::detached);
+    net::co_spawn(m_ioContext, RemoveOnlineKey(uid, session_id, m_selfServerName), net::detached);
 }
 
-net::awaitable<void> LogicSystem::RemoveOnlineKey(const std::uint64_t uid)
+net::awaitable<void> LogicSystem::RemoveOnlineKey(const std::uint64_t uid, std::string session_id, std::string server_name)
 {
     try
     {
-        co_await RedisManager::GetInstance().del({USER_IP_PERFIX + std::to_string(uid)});
+        // 用户可能还没等旧连接被服务端发现断开，就用新连接重新登录了：
+        // 此时 uip_<uid> 已由新会话接管，旧连接不能把新会话的在线状态删掉。
+        const auto current = UserManager::GetInstance().getSession(uid);
+        if (current && current->getSessionId() != session_id)
+        {
+            SPDLOG_INFO("[logic] skip removing online key: uid {} now on session {}, closing session {}",
+                        uid, current->getSessionId(), session_id);
+            co_return;
+        }
+
+        // 跨实例：新会话可能登录到了别的 ChatServer，此时 uip_<uid> 已指向那台机器。
+        const std::string key = USER_IP_PERFIX + std::to_string(uid);
+        const auto online_server = co_await RedisManager::GetInstance().get(key);
+        if (online_server.has_value() && !online_server->empty() && *online_server != server_name)
+        {
+            SPDLOG_INFO("[logic] skip removing online key: uid {} is now on {}, closing on {}",
+                        uid, *online_server, server_name);
+            co_return;
+        }
+        co_await RedisManager::GetInstance().del({key});
     }
     catch (const std::exception& e)
     {
@@ -1173,6 +1192,9 @@ net::awaitable<void> LogicSystem::notifyMessageSend(const bool is_group, const s
             const auto session_other = UserManager::GetInstance().getSession(to_id);
             if (!session_other)
             {
+                // 在线 key 还在（心跳在续期）却没有会话：推送无法送达，
+                // 客户端也就不会发 1023 拉取 —— 典型是旧连接断开时把新会话的映射删了。
+                SPDLOG_WARN("[notify] uid {} is online but session missing, drop 1022", to_id);
                 co_return;
             }
             session_other->notifyReceiveMessage();
@@ -1206,6 +1228,7 @@ net::awaitable<void> LogicSystem::notifyMessageSend(const bool is_group, const s
                 const auto session_other = UserManager::GetInstance().getSession(uid);
                 if (!session_other)
                 {
+                    SPDLOG_WARN("[notify] group {} member uid {} is online but session missing, drop 1022", to_id, uid);
                     continue;
                 }
                 session_other->notifyReceiveMessage();
