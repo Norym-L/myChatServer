@@ -2,6 +2,63 @@
 
 > 按批次记录，最新批次在前。基线与日期以提交记录为准。
 
+# 批次 2026-10-24（基线 `de9c472` + 工作区未提交）：消息调度器与协程推送（实验）
+
+> **实验性质，当前不可运行**。设计、时序、Redis 键位与已知问题见 [`design-message-push.md`](design-message-push.md)。
+
+## 1. 变更汇总
+
+| 类别       | 内容                                                                                                                                                                 |
+|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **新增**   | Redis Stream `onlinechatmsgstream_<server_name>`：每实例一个在线消息流，作为所有聊天消息的统一投递入口                                                               |
+| **新增**   | `MessageScheduler`：1 个 `XREADGROUP` 阻塞消费者 + 20 个投递协程 + 容量 1000 的 `MessageChannel`                                                                     |
+| **新增**   | `RedisManager::sendMessage`：单聊在线写在线流、离线写 `offlinestream_<uid>`、群聊按 `chatgroup_<gid>` 成员逐个扇出                                                   |
+| **新增**   | `CSession::pushMessage` / `writeLoop`：协程发送接口，返回是否真正写完，替代 `send()` 的"无结果"队列                                                                  |
+| **新增**   | TCP `1047 MESSAGE_CHAT_MESSAGE`：调度器直推**完整消息体**（`group_id` / `from_uid` / `type` / `body` / `time`）                                                      |
+| **变更**   | `1013` 不再调用 `notifyMessageSend`；消息交给调度器，在线由调度器直推、离线才落 `offlinestream`                                                                      |
+| **变更**   | 群创建 / 拉人 / 踢人 / 解散的系统消息同样只走调度器，`notifyMessageSend` 调用全部注释                                                                                |
+| **变更**   | 群聊发送时"不在群"的错误码由 `1022 NOT_FRIEND` 改为 `1023 GROUP_ID_INVALID`                                                                                          |
+| **变更**   | `1024` 的 `msgs[]` 字段调整：取消布尔 `group`，`group_id` 改为恒出现（单聊 `"0"`），`id` 改名 `time`（仍是 ACK 用的 Stream ID）                                      |
+| **变更**   | 内部 `chat_message::Message`：`is_to_group` 拆为 `group_id` + `group_checked`（发送方 / 分流阶段用）                                                                 |
+| **废弃**   | `notifyMessageSend`（`1022` + gRPC 转发）；gRPC `ChatService.NotifyChatMessage` 暂未删除                                                                             |
+| **说明**   | 在线流的 `XACKDEL` 含义是"调度器已取出处理"，**不是**客户端收件确认；未送达的消息统一由 `insertMessageToOffline` 写入 `offlinestream_<uid>` 兜底                     |
+| **说明**   | 调度器推送改为 `co_spawn` 到会话的 socket executor，`m_sendChannel` 的 send / receive / close 收敛到同一 io_context 线程；暂不合并 io_context（原因见设计文档 §3.5） |
+| **未完成** | 编译错误已清零，链路已通；剩余 4 个稳定性注意项（`front()` 无空检查、旧发送队列死代码导致背压失效、在线流无 TTL、参数拼写），见设计文档 §8.2                         |
+
+## 2. TCP 消息
+
+| message_id | 名称                             | 方向                    | 本批变化                                     |
+|------------|----------------------------------|-------------------------|----------------------------------------------|
+| `1047`     | `MESSAGE_CHAT_MESSAGE`           | 服务端 → 客户端（推送） | **新增枚举值**                               |
+| `1022`     | `MESSAGE_NOTIFY_RECEIVE_MESSAGE` | 服务端 → 客户端         | 聊天消息不再使用；好友验证等未迁移的推送仍用 |
+
+## 3. 推送报文体（1047）
+
+```json
+{
+  "group_id": "0",
+  "from_uid": "10002",
+  "type": 1,
+  "body": "你好",
+  "time": "1734567890123-0"
+}
+```
+
+- `group_id` 恒出现，单聊为 `"0"`、群聊为群 id（原布尔 `group` 字段取消）；`time` 为 Redis Stream 消息 ID，客户端可用于排序与去重。
+- 在线消息 **不再写入** `offlinestream_<uid>`；推送失败（会话不存在 / 写失败）才回落到离线流。
+- 旧客户端不认识 `1047`，且不会再从 `1023` 拉到在线消息 → **实验期不能与旧客户端混跑**。
+
+## 4. 内部变更（不影响对外契约）
+
+| 内容                                                                                                                                                                                                                                                                                                                                                                                                |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 新增 `src/chatServer/MessageScheduler.*`：`MessageReceiver` / `MessageSender` / `MessageScheduler`，继承 `RedisManager` 以复用受保护的构造与 `init`                                                                                                                                                                                                                                                 |
+| `src/chatServer/CServer.*`：删除 `getSession(uid)` 的声明与定义（uid → session 统一走 `UserManager`）                                                                                                                                                                                                                                                                                               |
+| `src/chatServer/net/CSession.*`：构造函数初始化 `SendMessageChannel`（容量 10）；新增 `SendMessageNode` / `SendResultChannel`、`writeLoop`、`pushMessage`；`sendMessage(Message)` 改为协程返回 `bool`，推送 `1047`；`close()` 关闭发送 channel；`SendNode` 的 `message_id` 改为 `std::uint16_t`                                                                                                     |
+| `src/public/MessageType.h`：`Message` 用 `group_id`（单聊 0）与 `group_checked`（分流标记）替代 `is_to_group`                                                                                                                                                                                                                                                                                       |
+| `src/public/src/RedisManager_boost.*`：新增 `ONLINE_MESSAGE_STREAM` 宏、`sendMessage`（`group_id` 分流 + `group_checked` 标记）；在线 / 离线流统一写 `group_id` / `to_uid` / `from_uid` / `type` / `body`；`insertMessageToOffline` 只接受已分流消息（`group_checked == true`），未分流消息只打告警；`streamReadGroup` 增加 `BLOCK` 参数；构造函数 / 析构 / 连接成员改为 `protected` 以便调度器继承 |
+| `main.cpp`：构造并启动 `MessageScheduler`，绑定到逻辑线程 `io_context`                                                                                                                                                                                                                                                                                                                              |
+
 # 批次 2026-10-23（基线 `38e522c`）：群资料获取与修改
 
 > 完整字段、流程与已知问题见 [`api-group.md`](api-group.md) §9–§10。

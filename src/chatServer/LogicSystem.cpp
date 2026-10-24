@@ -55,7 +55,7 @@ LogicSystem::LogicSystem()
                               }
                           });
     }
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 8; ++i)
     {
         m_ioTreads.emplace_back([this]()
             {
@@ -756,7 +756,7 @@ net::awaitable<void> LogicSystem::sendTextMessageHandler(const std::shared_ptr<C
     {
         if (!co_await RedisManager::GetInstance().isInGroup(to_uid, session->getUserId()))
         {
-            return_value["error"] = ErrorCode::NOT_FRIEND;
+            return_value["error"] = ErrorCode::GROUP_ID_INVALID;
             co_return;
         }
     }
@@ -769,13 +769,13 @@ net::awaitable<void> LogicSystem::sendTextMessageHandler(const std::shared_ptr<C
         }
     }
 
-    co_await RedisManager::GetInstance().insertMessageToOffline({
-        .type        = static_cast<chat_message::Type>(message_type),
-        .from_uid    = session->getUserId(),
-        .to_uid      = to_uid,
-        .is_to_group = is_group,
-        .body        = root["body"].asString(),
-        .message_id  = {} // 由 redis 生成
+    co_await RedisManager::GetInstance().sendMessage({
+        .type       = static_cast<chat_message::Type>(message_type),
+        .from_uid   = session->getUserId(),
+        .to_uid     = is_group ? 0 : to_uid,
+        .group_id   = is_group ? to_uid : 0,
+        .body       = root["body"].asString(),
+        .message_id = {} // 由 redis 生成
     });
 
     return_value["error"] = ErrorCode::SUCCESS;
@@ -833,15 +833,11 @@ net::awaitable<void> LogicSystem::syncChatMessageHandler(const std::shared_ptr<C
     for (const auto& message: messages)
     {
         Json::Value value;
-        value["group"] = message.is_to_group;
-        if (message.is_to_group && message.to_uid != 0) // 升级前写入的群消息没有 group_id
-        {
-            value["group_id"] = std::to_string(message.to_uid);
-        }
-        value["type"] = message.type;
+        value["group_id"] = std::to_string(message.group_id); // 不是group返回0
         value["from_uid"] = std::to_string(message.from_uid);
+        value["type"] = message.type;
         value["body"] = message.body;
-        value["id"] = message.message_id; // redis 自动生成的唯一消息id（毫秒时间戳-序列号）
+        value["time"] = message.message_id; // redis 自动生成的唯一消息id（毫秒时间戳-序列号）
         return_value["msgs"].append(value);
     }
 }
@@ -989,16 +985,16 @@ net::awaitable<void> LogicSystem::createChatGroupHandler(const std::shared_ptr<C
     co_await RedisManager::GetInstance().insertToGroup(value, {std::to_string(session->getUserId())});
     return_value["group_id"] = std::to_string(value);
     chat_message::Message system_group_created_msg{
-        .type        = chat_message::TEXT,
-        .from_uid    = 1, // 系统id
-        .to_uid      = value,
-        .is_to_group = true,
-        .body        = "群聊 " + std::to_string(value) + " 已创建",
-        .message_id  = {}
+        .type       = chat_message::TEXT,
+        .from_uid   = 1, // 系统id
+        .to_uid     = 0,
+        .group_id   = value,
+        .body       = "群聊 " + std::to_string(value) + " 已创建",
+        .message_id = {}
     };
     co_await RedisManager::GetInstance().sendMessage(std::move(system_group_created_msg));
     return_value["error"] = ErrorCode::SUCCESS;
-    co_await notifyMessageSend(true, value);
+    // co_await notifyMessageSend(true, value);
 }
 
 net::awaitable<void> LogicSystem::chatGroupAddMembersHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -1043,17 +1039,17 @@ net::awaitable<void> LogicSystem::chatGroupAddMembersHandler(const std::shared_p
         added_members.emplace_back(member.asString());
     }
     chat_message::Message system_add_member_msg{
-        .type        = chat_message::TEXT,
-        .from_uid    = 1, // 系统id
-        .to_uid      = group_id,
-        .is_to_group = true,
-        .body        = "邀请了 " + std::to_string(added_members.size()) + " 个好友",
-        .message_id  = {}
+        .type       = chat_message::TEXT,
+        .from_uid   = 1, // 系统id
+        .to_uid     = 0,
+        .group_id   = group_id,
+        .body       = "邀请了 " + std::to_string(added_members.size()) + " 个好友",
+        .message_id = {}
     };
     co_await RedisManager::GetInstance().insertToGroup(group_id, std::move(added_members));
     co_await RedisManager::GetInstance().sendMessage(std::move(system_add_member_msg));
     return_value["error"] = ErrorCode::SUCCESS;
-    co_await notifyMessageSend(true, group_id);
+    // co_await notifyMessageSend(true, group_id);
 }
 
 net::awaitable<void> LogicSystem::chatGroupKickMemberHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
@@ -1093,15 +1089,15 @@ net::awaitable<void> LogicSystem::chatGroupKickMemberHandler(const std::shared_p
         co_return;
     }
     chat_message::Message system_kick_member_msg{
-        .type        = chat_message::TEXT,
-        .from_uid    = 1, // 系统id
-        .to_uid      = group_id,
-        .is_to_group = true,
-        .body        = session->getUserId() == uid ? root["uid"].asString() + " 退出了群聊" : "踢出了 " + root["uid"].asString(),
-        .message_id  = {}
+        .type       = chat_message::TEXT,
+        .from_uid   = 1, // 系统id
+        .to_uid     = 0,
+        .group_id   = group_id,
+        .body       = session->getUserId() == uid ? root["uid"].asString() + " 退出了群聊" : "踢出了 " + root["uid"].asString(),
+        .message_id = {}
     };
     co_await RedisManager::GetInstance().sendMessage(std::move(system_kick_member_msg));
-    co_await notifyMessageSend(true, group_id);
+    // co_await notifyMessageSend(true, group_id);
     co_await RedisManager::GetInstance().kickUserFromGroup(group_id, root["uid"].asString());
     return_value["error"] = ErrorCode::SUCCESS;
 }
@@ -1135,15 +1131,15 @@ net::awaitable<void> LogicSystem::chatGroupDismissHandler(const std::shared_ptr<
         co_return;
     }
     chat_message::Message system_group_dismiss_msg{
-        .type        = chat_message::TEXT,
-        .from_uid    = 1, // 系统id
-        .to_uid      = group_id,
-        .is_to_group = true,
-        .body        = "该群聊已解散",
-        .message_id  = {}
+        .type       = chat_message::TEXT,
+        .from_uid   = 1, // 系统id
+        .to_uid     = 0,
+        .group_id   = group_id,
+        .body       = "该群聊已解散",
+        .message_id = {}
     };
     co_await RedisManager::GetInstance().sendMessage(std::move(system_group_dismiss_msg));
-    co_await notifyMessageSend(true, group_id);
+    // co_await notifyMessageSend(true, group_id);
     co_await RedisManager::GetInstance().del({CHAT_GROUP_PERFIX + root["group_id"].asString()});
     return_value["error"] = ErrorCode::SUCCESS;
 }
@@ -1269,6 +1265,7 @@ net::awaitable<void> LogicSystem::sendSystemMessage(chat_message::Message messag
 
 net::awaitable<void> LogicSystem::notifyMessageSend(const bool is_group, const std::uint64_t to_id) const
 {
+    assert("逻辑通知已弃用，换用为redis调度器通知");
     // 通知对方有消息
     if (!is_group)
     {

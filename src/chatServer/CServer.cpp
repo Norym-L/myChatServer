@@ -44,16 +44,6 @@ void CServer::clearSession(const std::string& session_id)
     }
 }
 
-std::shared_ptr<CSession> CServer::getSession(const std::string& uid)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (const auto it = m_sessions.find(uid); it != m_sessions.end())
-    {
-        return it->second;
-    }
-    return nullptr;
-}
-
 void CServer::handleAccept(std::shared_ptr<CSession> new_session, const boost::system::error_code& error_code)
 {
     if (!error_code)

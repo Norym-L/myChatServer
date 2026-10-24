@@ -2,6 +2,7 @@
 #define GATESERVER_SCHEDUKER_H
 
 #include <RedisManager.h>
+#include <boost/asio/experimental/concurrent_channel.hpp>
 
 // 聊天消息框架
 //  调度器 -> 阻塞读取 实时消息队列onlinechatmsgstream_<servername>（每个chatserver实例一个）
@@ -12,7 +13,7 @@
 class CServer;
 class CSession;
 
-using MessageChannel = boost::asio::experimental::channel<void(boost::system::error_code, chat_message::Message)>;
+using MessageChannel = boost::asio::experimental::concurrent_channel<void(boost::system::error_code, chat_message::Message)>;
 
 namespace detail
 {
@@ -37,14 +38,12 @@ public:
     void start(CServer* cserver, net::io_context& io_context, std::shared_ptr<MessageChannel> channel, std::string server_name);
 
     net::awaitable<void> run();
-    net::awaitable<void> sendMessageIfUserOnline(std::string uid, chat_message::Message message);
 
 private:
-    // 可能返回无效 session
-    [[nodiscard]] std::shared_ptr<CSession> getSession(const std::string& uid) const;
     CServer* m_parentServer = nullptr;
     std::shared_ptr<MessageChannel> m_channel;
     std::string m_serverName;
+    std::string m_groupName{"message-receiver"};
 };
 }
 

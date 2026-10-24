@@ -168,6 +168,12 @@
   （创建 / 拉人 / 踢人 / 解散），见 [`api-group.md`](api-group.md) §11.5。
 - 客户端收到后应发送 `1023` 拉取消息。
 
+> **实验分支（`de9c472` 起，未合入主干）**：聊天消息改由 `MessageScheduler` 统一推送，在线时直接下发
+> `1047 MESSAGE_CHAT_MESSAGE`（含 `group_id` / `from_uid` / `type` / `body` / `time`；`group_id` 恒出现，单聊为
+> `"0"`），不再推 `1022`、也不再写入 `offlinestream_<uid>`；推送失败才回落离线流。设计、兼容性与已知问题见
+> [`design-message-push.md`](design-message-push.md)。本节的 `1022` + `1023` 流程仍适用于离线消息与尚未迁移的推送
+> （好友验证等）。
+
 ## 6. 拉取消息（1023 / 1024）
 
 ### 6.1 请求 MESSAGE_SYNC_CHAT_MESSAGE_REQ（1023）
@@ -223,6 +229,11 @@
 - 群消息与单聊共用同一消费流，通过 `msgs[].group` 区分，群消息另带 `msgs[].group_id`（见 [`api-group.md`](api-group.md)
   §11.4）；
   升级前已入队的群消息没有该字段，客户端需按缺失处理。
+
+> **实验分支字段变化（未合入主干）**：`msgs[]` 取消布尔 `group`，`group_id` 改为 **恒出现**（单聊 `"0"`）；`id` 改名为
+> `time`（值不变，仍是 ACK 使用的 Stream ID）。离线流字段同步改为 `group_id` / `to_uid` / `from_uid` / `type` / `body`；
+> 在线流的 `XACKDEL` 只表示"调度器已取出处理"，不代表客户端已收到，详见
+> [`design-message-push.md`](design-message-push.md) §3.4。
 
 ## 7. 确认收到（1025 / 1026）
 

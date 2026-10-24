@@ -19,9 +19,6 @@ public:
 
     std::string getSelfServerName() { return m_name; }
 
-    // 可能刚返回就被踢出服务器导致 session 无效但存在
-    std::shared_ptr<CSession> getSession(const std::string& uid);
-
 private:
     void handleAccept(std::shared_ptr<CSession> new_session, const boost::system::error_code& error_code);
     void startAccept();

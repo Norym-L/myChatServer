@@ -98,30 +98,41 @@ net::awaitable<void> RedisManager::sendMessage(chat_message::Message message)
 {
     try
     {
-        if (!message.is_to_group)
+        if (message.group_checked)
         {
             const auto ip = co_await isUserOnLine(message.to_uid);
             if (ip.has_value())
             {
                 co_await streamAdd(ONLINE_MESSAGE_STREAM + ip.value(),
                                    {
-                                       {"group", message.is_to_group ? "y" : "f"},
+                                       {"group_id", std::to_string(message.group_id)}, // 群聊不为0，私聊为0
                                        {"from_uid", std::to_string(message.from_uid)},
+                                       {"to_uid", std::to_string(message.to_uid)},
                                        {"type", std::to_string(message.type)},
                                        {"body", message.body}
                                    });
             }
             else
             {
-                co_await insertMessageToOffline(std::move(message));
+                co_await insertMessageToOffline(std::move(message)); // redis生成时间戳，通过生成的时间戳排序
             }
+            co_return;
+        }
+
+        if (message.group_id == 0)
+        {
+            // 私聊
+            message.group_checked = true;
+            co_await sendMessage(std::move(message));
         }
         else
         {
-            const auto uids = co_await getUsersFromGroup(message.to_uid);
+            // 群聊 存在group_id不为0
+            const auto uids = co_await getUsersFromGroup(message.group_id);
             for (const auto& uid: uids)
             {
                 chat_message::Message msg = message;
+                msg.group_checked = true;
                 (void) uid_codec::ParseUid(uid, msg.to_uid);
                 co_await sendMessage(std::move(msg));
             }
@@ -137,39 +148,20 @@ net::awaitable<void> RedisManager::insertMessageToOffline(chat_message::Message 
 {
     try
     {
-        if (!message.is_to_group) // 私聊
+        if (message.group_checked) // 检查过消息
         {
             co_await streamAdd(USER_OFFLINE_MESSAGE_STREAM + std::to_string(message.to_uid),
                                {
-                                   {"group", "f"},
+                                   {"group_id", std::to_string(message.group_id)}, // 群聊不为0，私聊为0
                                    {"from_uid", std::to_string(message.from_uid)},
+                                   {"to_uid", std::to_string(message.to_uid)},
                                    {"type", std::to_string(message.type)},
                                    {"body", message.body}
                                });
         }
-        else // 群聊
+        else
         {
-            assert("不可能还有群聊消息群聊");
-            const auto user_strs = co_await getUsersFromGroup(message.to_uid);
-            if (user_strs.empty()) { co_return; }
-            std::vector<std::string> stream_names;
-            std::vector<std::vector<std::pair<std::string, std::string> > > insert_values;
-            stream_names.reserve(user_strs.size());
-            insert_values.reserve(user_strs.size());
-
-            for (const auto& member_uid: user_strs)
-            {
-                stream_names.emplace_back(USER_OFFLINE_MESSAGE_STREAM + member_uid);
-                std::vector<std::pair<std::string, std::string> > value = {
-                    {"group", "y"},
-                    {"group_id", std::to_string(message.to_uid)},
-                    {"from_uid", std::to_string(message.from_uid)},
-                    {"type", std::to_string(message.type)},
-                    {"body", message.body}
-                };
-                insert_values.emplace_back(std::move(value));
-            }
-            co_await streamsAdd(std::move(stream_names), std::move(insert_values));
+            SPDLOG_WARN("有消息未检查");
         }
     }
     catch (std::exception& e)
@@ -214,9 +206,9 @@ net::awaitable<std::vector<chat_message::Message> > RedisManager::getMessageFrom
         message.message_id = id;
         for (const auto& [key, value]: fields)
         {
-            if (key == "group") value == "f" ? message.is_to_group = false : message.is_to_group = true;
-            else if (key == "group_id") message.to_uid = std::stoull(value);
+            if (key == "group_id") message.group_id = std::stoull(value);
             else if (key == "from_uid") message.from_uid = std::stoull(value);
+            else if (key == "to_uid") message.to_uid = std::stoull(value);
             else if (key == "type") message.type = static_cast<chat_message::Type>(std::stoi(value));
             else if (key == "body") message.body = value;
         }

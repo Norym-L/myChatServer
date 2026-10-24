@@ -11,6 +11,7 @@ CSession::CSession(boost::asio::io_context& io_context, CServer* server)
 {
     const auto uuid = boost::uuids::random_generator()();
     m_sessionId = to_string(uuid);
+    m_sendChannel = std::make_shared<SendMessageChannel>(io_context, 10);
 }
 
 CSession::~CSession()
@@ -51,6 +52,14 @@ void CSession::start()
                 self->close();
                 self->m_server->clearSession(self->m_sessionId);
             });
+    net::co_spawn(
+        m_socket.get_executor(),
+        [self]() -> net::awaitable<void>
+            {
+                co_await self->writeLoop();
+            },
+        [self](const std::exception_ptr& ep)
+            {});
 }
 
 std::string CSession::getSessionId()
@@ -102,30 +111,54 @@ net::awaitable<void> CSession::readLoop()
     }
 }
 
+net::awaitable<void> CSession::writeLoop()
+{
+    for (;;)
+    {
+        auto [receive_ec, message] = co_await m_sendChannel->async_receive(net::as_tuple);
+        if (receive_ec) co_return;
+
+        const auto send_node = SendNode(message->body.data(), message->body.size(), message->message_id);
+
+        auto [send_ec, n] = co_await net::async_write(
+            m_socket,
+            net::buffer(send_node.m_data, send_node.m_totalLen),
+            net::as_tuple(net::use_awaitable));
+
+        if (message->result)
+        {
+            co_await message->result->async_send(send_ec, net::as_tuple);
+        }
+        if (send_ec) co_return;
+    }
+}
+
+net::awaitable<bool> CSession::pushMessage(std::string message, std::uint16_t id) const
+{
+    const auto node = std::make_shared<SendMessageNode>(std::move(message), std::make_shared<SendResultChannel>(co_await net::this_coro::executor, 1), id);
+    auto [send_ec] = co_await m_sendChannel->async_send(boost::system::error_code{}, node, net::as_tuple);
+    if (send_ec) co_return false;
+    co_return co_await node->sendSuccsee();
+}
+
 void CSession::send(const char* message, const size_t len, const short message_id)
 {
-    std::lock_guard<std::mutex> lock(m_sendMutex);
-    const size_t sendQueue_size = m_sendQueue.size();
-    if (sendQueue_size > MAX_SEND_QUEUE_LEN)
-    {
-        // 队列积压说明对端不再取数据（TCP 背压），继续静默丢包会让客户端一直等响应；直接关闭会话
-        SPDLOG_WARN("[tcp session] session[{}] send queue fulled, size is: {}, close session", m_sessionId, MAX_SEND_QUEUE_LEN);
-        boost::system::error_code ec;
-        m_socket.close(ec);
-        return;
-    }
-
-    m_sendQueue.push(std::shared_ptr<SendNode>(new SendNode(message, len, message_id)));
-
-    if (sendQueue_size > 0)
-    {
-        return;
-    }
-    const auto& message_node = m_sendQueue.front();
-    boost::asio::async_write(
-        m_socket,
-        boost::asio::buffer(message_node->m_data, message_node->m_totalLen),
-        std::bind(&CSession::handleWrite, this, std::placeholders::_1, this->shared_from_this()));
+    // 临时处理
+    auto self = shared_from_this(); // 保活
+    net::co_spawn(
+        m_socket.get_executor(),
+        [self, body = std::string(message, len), id = static_cast<std::uint16_t>(message_id)]() -> net::awaitable<void>
+            {
+                if (!co_await self->pushMessage(std::move(body), id))
+                    SPDLOG_DEBUG("[tcp session] push failed, drop one message");
+            },
+        [](const std::exception_ptr& ep)
+            {
+                if (!ep) return;
+                try { std::rethrow_exception(ep); }
+                catch (const std::exception& e) { SPDLOG_WARN("[tcp session] push exception: {}", e.what()); }
+                catch (...) { SPDLOG_WARN("[tcp session] push unknown exception"); }
+            });
 }
 
 void CSession::handleWrite(const boost::system::error_code& error_code, std::shared_ptr<CSession> shared_self)
@@ -180,20 +213,15 @@ void CSession::sendFriendRequestResult(const std::uint64_t add_friend_request_id
     send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_NOTIFY_AUTH_FRIEND_REQ);
 }
 
-void CSession::sendMessage(chat_message::Message message)
+net::awaitable<bool> CSession::sendMessage(const chat_message::Message message) const
 {
     Json::Value return_value;
-    return_value["group"] = message.is_to_group;
-    if (message.is_to_group && message.to_uid != 0) // 升级前写入的群消息没有 group_id
-    {
-        return_value["group_id"] = std::to_string(message.to_uid);
-    }
-    return_value["type"] = message.type;
+    return_value["group_id"] = std::to_string(message.group_id); // 不是group返回0
     return_value["from_uid"] = std::to_string(message.from_uid);
+    return_value["type"] = message.type;
     return_value["body"] = message.body;
     return_value["time"] = message.message_id; // redis 自动生成的唯一消息id（毫秒时间戳-序列号）
-    const std::string return_str = return_value.toStyledString();
-    send(return_str.c_str(), return_str.size(), MessageType::MESSAGE_CHAT_MESSAGE);
+    co_return co_await pushMessage(return_value.toStyledString(), MessageType::MESSAGE_CHAT_MESSAGE);
 }
 
 void CSession::notifyReceiveMessage()
@@ -215,5 +243,6 @@ void CSession::close()
     // socket 为共享资源：send() 会在逻辑线程发起 async_write，关闭操作必须与之互斥，避免并发操作同一 socket
     std::lock_guard<std::mutex> lock(m_sendMutex);
     boost::system::error_code ec;
+    m_sendChannel->close();
     m_socket.close(ec);
 }

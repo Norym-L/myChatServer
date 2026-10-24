@@ -7,6 +7,7 @@
 #include <queue>
 
 #include <const.h>
+#include <boost/asio/experimental/concurrent_channel.hpp>
 
 #include "MessageType.h"
 
@@ -26,6 +27,23 @@ class CServer;
 class ReceiveNode;
 class SendNode;
 
+using SendResultChannel = net::experimental::concurrent_channel<void(boost::system::error_code)>;
+
+struct SendMessageNode // 发送消息结构
+{
+    std::string body;                          // 序列化json
+    std::shared_ptr<SendResultChannel> result; // 发送结果通道
+    std::uint16_t message_id;                  // 消息编号
+
+    net::awaitable<bool> sendSuccsee() const
+    {
+        auto [ec] = co_await result->async_receive(net::as_tuple);
+        co_return !ec;
+    }
+};
+
+using SendMessageChannel = net::experimental::concurrent_channel<void(boost::system::error_code, std::shared_ptr<SendMessageNode>)>;
+
 class CSession : public std::enable_shared_from_this<CSession>
 {
 public:
@@ -40,6 +58,8 @@ public:
     [[nodiscard]] std::uint64_t getUserId() const;
 
     net::awaitable<void> readLoop();
+    net::awaitable<void> writeLoop();
+    net::awaitable<bool> pushMessage(std::string message, std::uint16_t id) const;
 
     void send(const char* message, size_t len, short message_id);
     void handleWrite(const boost::system::error_code& error_code, std::shared_ptr<CSession> shared_self);
@@ -57,7 +77,7 @@ public:
      */
     void sendFriendRequestResult(std::uint64_t add_friend_request_id, int state);
 
-    void sendMessage(chat_message::Message);
+    net::awaitable<bool> sendMessage(chat_message::Message) const;
 
     void notifyReceiveMessage();
 
@@ -71,6 +91,7 @@ private:
     std::mutex m_sendMutex;
     std::queue<std::shared_ptr<SendNode> > m_sendQueue;
     std::uint64_t m_userId{0};
+    std::shared_ptr<SendMessageChannel> m_sendChannel;
 };
 
 
@@ -107,15 +128,13 @@ public:
     }
 
 private:
-    explicit SendNode(const char* message, const size_t len, const short message_id)
+    explicit SendNode(const char* message, const size_t len, const std::uint16_t message_id)
         : m_totalLen(HEAD_TOTAL_LEN + len)
     {
         // 发送缓冲区 = 4 字节协议头（2 字节 message_id + 2 字节报文长度，均网络字节序）+ 消息体
         m_data = static_cast<char*>(::malloc(sizeof(char) * (HEAD_TOTAL_LEN + len)));
-        const auto id_network = boost::asio::detail::socket_ops::host_to_network_short(
-            static_cast<unsigned short>(message_id));
-        const auto len_network = boost::asio::detail::socket_ops::host_to_network_short(
-            static_cast<unsigned short>(len));
+        const auto id_network = boost::asio::detail::socket_ops::host_to_network_short(message_id);
+        const auto len_network = boost::asio::detail::socket_ops::host_to_network_short(static_cast<unsigned short>(len));
         ::memcpy(m_data, &id_network, HEAD_ID_LEN);
         ::memcpy(m_data + HEAD_ID_LEN, &len_network, HEAD_DATA_LEN);
         ::memcpy(m_data + HEAD_TOTAL_LEN, message, len);

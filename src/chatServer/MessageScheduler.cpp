@@ -4,6 +4,8 @@
 #include "CServer.h"
 #include <MessageType.h>
 
+#include "data/UserManager.h"
+
 namespace detail
 {
 void MessageReceiver::start(net::io_context& io_context, std::shared_ptr<MessageChannel> channel, std::string server_name)
@@ -21,18 +23,24 @@ net::awaitable<void> MessageReceiver::run() const
     {
         try
         {
+            co_await streamCreateGroup(stream_name, m_groupName, -1);
             for (;;)
             {
-                const auto stream_results = co_await streamReadGroup(m_groupName, m_groupConsumer, stream_name, MessageReadMode::New, 100, 0);
+                const auto stream_results = co_await streamReadGroup(m_groupName, m_groupConsumer, stream_name, MessageReadMode::New, 100, 500);
+                if (stream_results.empty())
+                {
+                    continue;
+                }
                 for (const auto& [id, fields]: stream_results.front().entries)
                 {
                     chat_message::Message message;
                     message.message_id = id;
+                    message.group_checked = true;
                     for (const auto& [key, value]: fields)
                     {
-                        if (key == "group") value == "f" ? message.is_to_group = false : message.is_to_group = true;
-                        else if (key == "group_id") message.to_uid = std::stoull(value);
+                        if (key == "group_id") message.group_id = std::stoull(value);
                         else if (key == "from_uid") message.from_uid = std::stoull(value);
+                        else if (key == "to_uid") message.to_uid = std::stoull(value);
                         else if (key == "type") message.type = static_cast<chat_message::Type>(std::stoi(value));
                         else if (key == "body") message.body = value;
                     }
@@ -44,9 +52,9 @@ net::awaitable<void> MessageReceiver::run() const
                 }
             }
         }
-        catch (const std::exception&)
+        catch (const std::exception& e)
         {
-            SPDLOG_WARN("[message-receiver] broken, restart now");
+            SPDLOG_WARN("[message-receiver] broken, restart now error: {}", e.what());
         }
     }
 }
@@ -67,25 +75,40 @@ net::awaitable<void> MessageSender::run()
 {
     for (;;)
     {
-        auto [ec, message] = co_await m_channel->async_receive(net::as_tuple);
-        if (ec) co_return;
-        auto message_id = message.message_id;
-        co_await sendMessageIfUserOnline(std::to_string(message.to_uid), std::move(message));
-        co_await insertMessageToOffline(std::move(message));
-        co_await streamAckDel(ONLINE_MESSAGE_STREAM + m_serverName, "receiver", {std::move(message_id)}); // 确认删除在线流
+        try
+        {
+            for (;;)
+            {
+                auto [ec, message] = co_await m_channel->async_receive(net::as_tuple);
+                if (ec) co_return;
+                if (message.message_id.empty()) // 解析层已经坏了，这条只能丢
+                {
+                    SPDLOG_WARN("[message-sender] empty stream id, drop message from {}", message.from_uid);
+                    continue;
+                }
+                try
+                {
+                    co_await streamAckDel(ONLINE_MESSAGE_STREAM + m_serverName, m_groupName, {message.message_id}); // 确认删除在线流
+                }
+                catch (const std::exception& e)
+                {
+                    SPDLOG_WARN("ackdel failed, id: {}, error: {}", message.message_id, e.what());
+                }
+                const auto session = UserManager::GetInstance().getSession(message.to_uid);
+                if (!session ||
+                    !co_await net::co_spawn(session->getSocket().get_executor(),
+                                            session->sendMessage(message),
+                                            net::use_awaitable))
+                {
+                    co_await insertMessageToOffline(std::move(message));
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            SPDLOG_WARN("[message-sender] broken, restart now error: {}", e.what());
+        }
     }
-}
-
-net::awaitable<void> MessageSender::sendMessageIfUserOnline(const std::string uid, const chat_message::Message message)
-{
-    getSession(uid)->sendMessage(message);
-    co_return;
-}
-
-
-std::shared_ptr<CSession> MessageSender::getSession(const std::string& uid) const
-{
-    return m_parentServer->getSession(uid);
 }
 }
 

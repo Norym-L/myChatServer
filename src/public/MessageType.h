@@ -16,9 +16,10 @@ enum Type
 struct Message
 {
     Type type{};
-    std::uint64_t from_uid{};
-    std::uint64_t to_uid{}; // 单聊为接收方 uid，群聊为群 id
-    bool is_to_group{false};
+    std::uint64_t from_uid{0}; // 发送方 uid
+    std::uint64_t to_uid{0};   // 接收方 uid，群聊发送时为0，解析后填充
+    std::uint64_t group_id{0}; // 群id，单聊为0
+    bool group_checked{false}; // 用于标记是否进行分流 (RedisManager::sendMessage)
     std::string body;
     std::string message_id{};
 };
