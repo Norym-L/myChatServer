@@ -55,7 +55,7 @@ LogicSystem::LogicSystem()
                               }
                           });
     }
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         m_ioTreads.emplace_back([this]()
             {
