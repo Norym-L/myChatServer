@@ -170,7 +170,7 @@ net::awaitable<MysqlResult<std::optional<UserInfo> > > Mysql_boost::getUser(std:
         mysql::results result;
         {
             auto connection = co_await m_pool->async_get_connection(net::use_awaitable);
-            const auto sql = co_await connection->async_prepare_statement("SELECT `name`, `email`, `desc`, `icon`, `sex` FROM `user` WHERE `uid` = ? LIMIT 1", net::use_awaitable); // 获取用户信息
+            const auto sql = co_await connection->async_prepare_statement("SELECT `name`, `email`, `bio`, `icon`, `sex` FROM `user` WHERE `uid` = ? LIMIT 1", net::use_awaitable); // 获取用户信息
             co_await connection->async_execute(sql.bind(uid), result, net::use_awaitable);
         }
         root.error_code = 0;
@@ -184,7 +184,7 @@ net::awaitable<MysqlResult<std::optional<UserInfo> > > Mysql_boost::getUser(std:
                 row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()),
                 row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()),
                 uid,
-                static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64())
+                static_cast<Sex>(row.at(4).is_null() ? 2 : row.at(4).as_int64())
             };
         }
         co_return root;
@@ -213,7 +213,7 @@ net::awaitable<MysqlResult<std::vector<UserInfo> > > Mysql_boost::getUser(std::s
         mysql::results result;
         {
             auto connection = co_await m_pool->async_get_connection(net::use_awaitable);
-            const auto sql = co_await connection->async_prepare_statement("SELECT `uid`, `email`, `desc`, `icon`, `sex` FROM `user` WHERE `name` = ? ", net::use_awaitable);
+            const auto sql = co_await connection->async_prepare_statement("SELECT `uid`, `email`, `bio`, `icon`, `sex` FROM `user` WHERE `name` = ? ", net::use_awaitable);
             co_await connection->async_execute(sql.bind(name), result, net::use_awaitable);
         }
         if (result.rows().empty())
@@ -233,7 +233,7 @@ net::awaitable<MysqlResult<std::vector<UserInfo> > > Mysql_boost::getUser(std::s
                     row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()),
                     row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()),
                     row.at(0).as_uint64(),
-                    static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64())
+                    static_cast<Sex>(row.at(4).is_null() ? 2 : row.at(4).as_int64())
                     );
             }
         }
@@ -490,4 +490,52 @@ net::awaitable<MysqlResult<GroupInfo> > Mysql_boost::getGroupInfo(std::uint64_t 
 net::awaitable<int> Mysql_boost::changeGroupInfo(std::uint64_t group_id, std::uint64_t operator_id, std::optional<std::string> name, std::optional<std::string> avatar_url, std::optional<std::string> announcement, std::optional<std::uint32_t> max_members)
 {
     co_return co_await callMysqlSpWithoutResult("CALL update_group_info(?, ?, ?, ?, ?, ?, @error)", group_id, operator_id, name, avatar_url, announcement, max_members);
+}
+
+net::awaitable<int> Mysql_boost::saveMessage(std::uint64_t sender_id, std::uint64_t session_id, bool is_group, int msg_type,
+                                             std::string content, std::optional<std::string> client_msg_id)
+{
+    // content 是 TEXT（上限 65535 字节），严模式超长会整条 INSERT 失败。
+    // 这里按 UTF-8 边界截断并告警，宁可存下半条也不要丢整条。
+    constexpr std::size_t kMaxContentBytes = 65535;
+    if (content.size() > kMaxContentBytes)
+    {
+        std::size_t cut = kMaxContentBytes;
+        while (cut > 0 && (static_cast<unsigned char>(content[cut]) & 0xC0) == 0x80)
+        {
+            --cut; // 不要把一个多字节字符切成两半
+        }
+        SPDLOG_WARN("[MySqlDao] saveMessage: content 过长被截断 {} -> {} 字节", content.size(), cut);
+        content.resize(cut);
+    }
+
+    try
+    {
+        mysql::results result;
+        {
+            auto connection = co_await m_pool->async_get_connection(net::use_awaitable);
+            const auto sql = co_await connection->async_prepare_statement(
+                "INSERT INTO `message` (`sender_id`, `session_id`, `is_group`, `msg_type`, `content`, `client_msg_id`) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE `id` = `id`",
+                net::use_awaitable);
+            co_await connection->async_execute(
+                sql.bind(sender_id, session_id, static_cast<std::int8_t>(is_group ? 1 : 0),
+                         static_cast<std::int8_t>(msg_type), content, client_msg_id),
+                result, net::use_awaitable);
+            // 受影响行数 1=新插入，0=命中 uk_sender_client（客户端重试的重复消息），两者都算成功
+            SPDLOG_DEBUG("[MySqlDao] saveMessage ok, affected_rows={}", result.affected_rows());
+        }
+        co_return 0;
+    }
+    catch (const mysql::error_with_diagnostics& e)
+    {
+        SPDLOG_ERROR("[MySqlDao] saveMessage MySQL error: {}", e.what());
+        SPDLOG_ERROR("[MySqlDao] Server message: {}", e.get_diagnostics().server_message());
+    }
+    catch (const std::exception& e)
+    {
+        SPDLOG_ERROR("[MySqlDao] saveMessage Error: {}", e.what());
+    }
+    co_return -10;
 }

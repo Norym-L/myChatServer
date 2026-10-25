@@ -158,6 +158,24 @@ public:
                                         std::optional<std::string> announcement = std::nullopt,
                                         std::optional<std::uint32_t> max_members = std::nullopt);
 
+    /**
+     * 聊天消息落库（历史存储）
+     *
+     * 一条 INSERT 完成，不走存储过程：消息是最高频写入，CALL + 再查 @error 要两次往返。
+     * 唯一键 `(sender_id, client_msg_id)` 负责幂等，重复的客户端重试会被 `ON DUPLICATE KEY
+     * UPDATE id=id` 静默吞掉（不新增行，也不报错）。
+     *
+     * @param sender_id 发送者uid
+     * @param session_id 会话id：单聊=对方uid，群聊=群id（与投递语义一致，都是 to_uid）
+     * @param is_group 是否群聊
+     * @param msg_type 消息类型，对齐 chat_message::Type（1文本/2图片/3文件/4表情包）
+     * @param content 消息体
+     * @param client_msg_id 客户端消息id（msg_id），用于重试幂等；没有则传 std::nullopt
+     * @return 0 已入库（重复消息同样返回 0），-10 代表数据库异常
+     */
+    net::awaitable<int> saveMessage(std::uint64_t sender_id, std::uint64_t session_id, bool is_group, int msg_type,
+                                    std::string content, std::optional<std::string> client_msg_id);
+
 private:
     std::unique_ptr<mysql::connection_pool> m_pool;
 

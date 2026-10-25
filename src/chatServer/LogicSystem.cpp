@@ -737,6 +737,7 @@ net::awaitable<void> LogicSystem::authFriendRequestHandler(const std::shared_ptr
 net::awaitable<void> LogicSystem::sendTextMessageHandler(const std::shared_ptr<CSession>& session, const std::string& message_data) const
 {
     //  -> redis的离线序列 -> 查询是否在线 -> 发送到指定用户 -> 接收用户回包显示接收到 -> 删除redis等待序列数据
+    //  -> MySQL message 表落一条历史（只写不读；历史读取接口仍是 Redis）
     HANDLER_PREFIX(MESSAGE_TEXT_CHAT_MSG_RSP)
 
     return_value["msg_id"] = root["msg_id"].asString(); // 客户端用于识别消息的id 字符串传递
@@ -777,6 +778,22 @@ net::awaitable<void> LogicSystem::sendTextMessageHandler(const std::shared_ptr<C
         .body       = root["body"].asString(),
         .message_id = {} // 由 redis 生成
     });
+
+    // 历史落库：Redis 投递成功后写一条 MySQL 记录（Redis 是投递真相，MySQL 是历史真相）。
+    // session_id 与上面的投递语义保持一致 —— 单聊是对方 uid，群聊是群 id，两种都是 to_uid。
+    // 落库失败只记日志、不影响本条消息的投递结果：丢了历史也不能丢消息。
+    std::optional<std::string> client_msg_id;
+    if (std::string client_id = root["msg_id"].asString(); !client_id.empty())
+    {
+        client_msg_id = std::move(client_id); // 客户端没带 msg_id 就不做幂等，允许重复行
+    }
+    if (const int save_ret = co_await MySqlManager::GetInstance().saveChatMessage(
+            session->getUserId(), to_uid, is_group, message_type, root["body"].asString(), std::move(client_msg_id));
+        save_ret != 0)
+    {
+        SPDLOG_ERROR("[LogicSystem] 消息落库失败: sender={} session_id={} is_group={} ret={}",
+                     session->getUserId(), to_uid, is_group, save_ret);
+    }
 
     return_value["error"] = ErrorCode::SUCCESS;
 

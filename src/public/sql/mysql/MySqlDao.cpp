@@ -308,7 +308,7 @@ std::shared_ptr<UserInfo> MySqlDao::getUser(const std::uint64_t uid) const
 
     try
     {
-        const auto sql = connection->connection->prepare_statement("SELECT `name`, `email`, `desc`, `icon`, `sex` FROM `user` WHERE `uid` = ? LIMIT 1"); // 获取用户信息
+        const auto sql = connection->connection->prepare_statement("SELECT `name`, `email`, `bio`, `icon`, `sex` FROM `user` WHERE `uid` = ? LIMIT 1"); // 获取用户信息
         mysql::results result;
         connection->connection->execute(sql.bind(uid), result);
         if (result.rows().empty())
@@ -327,7 +327,7 @@ std::shared_ptr<UserInfo> MySqlDao::getUser(const std::uint64_t uid) const
             row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()), // desc
             row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()), // icon
             uid,
-            static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64()) // sex
+            static_cast<Sex>(row.at(4).is_null() ? 2 : row.at(4).as_int64()) // sex
             );
         return user_info;
     }
@@ -355,7 +355,7 @@ std::vector<std::shared_ptr<UserInfo> > MySqlDao::getUser(const std::string& nam
 
     try
     {
-        const auto sql = connection->connection->prepare_statement("SELECT `uid`, `email`, `desc`, `icon`, `sex` FROM `user` WHERE `name` = ? "); // 获取用户信息
+        const auto sql = connection->connection->prepare_statement("SELECT `uid`, `email`, `bio`, `icon`, `sex` FROM `user` WHERE `name` = ? "); // 获取用户信息
         mysql::results result;
         connection->connection->execute(sql.bind(name), result);
         if (result.rows().empty())
@@ -376,7 +376,7 @@ std::vector<std::shared_ptr<UserInfo> > MySqlDao::getUser(const std::string& nam
                 row.at(2).is_null() ? std::string() : std::string(row.at(2).as_string()),
                 row.at(3).is_null() ? std::string() : std::string(row.at(3).as_string()),
                 row.at(0).as_uint64(),
-                static_cast<Sex>(row.at(4).is_null() ? 3 : row.at(4).as_int64())
+                static_cast<Sex>(row.at(4).is_null() ? 2 : row.at(4).as_int64())
                 );
             user_infos.push_back(user_info);
         }

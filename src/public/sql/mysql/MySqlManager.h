@@ -17,6 +17,27 @@ public:
     [[nodiscard]] Mysql_boost& co_run() { return m_mysqlBoost; }
     void init(net::io_context& io_context);
 
+    /**
+     * 聊天消息落库（协程；历史存储，投递仍由 Redis 负责）
+     *
+     * 与 co_run().saveMessage(...) 等价，单独包一层是因为消息落库是每条消息都要走的高频路径，
+     * 调用点只需要一个 MySqlManager 入口，不必在业务代码里暴露 Mysql_boost。
+     *
+     * @param sender_id 发送者uid
+     * @param session_id 会话id：单聊=对方uid，群聊=群id
+     * @param is_group 是否群聊
+     * @param msg_type 消息类型（chat_message::Type）
+     * @param content 消息体
+     * @param client_msg_id 客户端消息id，用于重试幂等；没有则 std::nullopt
+     * @return 0 已入库（重复消息也返回 0），-10 数据库异常
+     */
+    net::awaitable<int> saveChatMessage(std::uint64_t sender_id, std::uint64_t session_id, bool is_group, int msg_type,
+                                        std::string content, std::optional<std::string> client_msg_id)
+    {
+        co_return co_await m_mysqlBoost.saveMessage(sender_id, session_id, is_group, msg_type,
+                                                    std::move(content), std::move(client_msg_id));
+    }
+
 
     /**
      * 注册用户

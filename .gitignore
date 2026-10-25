@@ -7,3 +7,6 @@
 .vscode/setting.json
 .vs
 /out
+
+# 数据库备份含明文用户数据，不进版本库
+/db/backups/

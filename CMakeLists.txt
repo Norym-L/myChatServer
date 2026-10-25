@@ -19,6 +19,7 @@ find_package(gRPC REQUIRED)
 find_package(redis++ REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
+find_package(AWSSDK REQUIRED COMPONENTS s3)
 
 # release 模式不编译 spdlog；必须写在 add_subdirectory 之前，才能作用到各服务子目录
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -43,6 +44,7 @@ set(MYCHAT_COMMON_LIBS
         spdlog::spdlog
         fmt::fmt
         ${PLATFORM_LIBS}
+        ${AWSSDK_LINK_LIBRARIES}
 )
 
 # 把配置文件复制到可执行文件所在目录（三个服务的可执行文件输出到同一目录）
