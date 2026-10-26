@@ -1,0 +1,28 @@
+; GateServer 配置模板（容器内由 entrypoint 用环境变量渲染）
+; 注意：${...} 占位符全部来自 deploy/.env，改动请同步 deploy/.env.example
+
+[GateServer]
+port = ${GATE_PORT}
+
+; gRPC 客户端：验证码服务（Node 版 verifyserver）
+[VerifyServer]
+host = ${VERIFY_HOST}
+port = ${VERIFY_PORT}
+
+; gRPC 客户端：状态服务（分配 ChatServer + 签发 token）
+[StatusServerForClient]
+host = ${STATUS_HOST}
+port = ${STATUS_PORT}
+
+[Mysql]
+host = ${MYSQL_HOST}
+port = ${MYSQL_PORT}
+passwd = ${MYSQL_PASSWORD}
+
+[Redis]
+host = ${REDIS_HOST}
+port = ${REDIS_PORT}
+passwd = ${REDIS_PASSWORD}
+
+[LoggerLevel]
+default = ${LOG_LEVEL}

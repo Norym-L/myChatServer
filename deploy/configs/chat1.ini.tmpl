@@ -1,0 +1,45 @@
+; ChatServer 实例 1 配置模板（容器内由 entrypoint 用环境变量渲染）
+;   约定：本文件内恰好一个 [ChatServerN] 段，进程据此确定自身身份
+;
+;   [ChatServer1].host 被同一个进程用在两个地方：
+;     1) gRPC 服务端绑定地址（main.cpp: builder.AddListeningPort(host:grpcPort)）
+;        → 容器里必须绑 0.0.0.0，填公网 IP 会绑定失败
+;     2) 注册到 Redis serverlist 的对外地址
+;        当前代码里 serverlist 的值只被 statusServer 用来判活，不参与寻址，
+;        所以这里用 0.0.0.0 不会影响客户端 —— 客户端拿到的聊天服地址来自 status.ini。
+;
+;   对端 chat2 走容器网络名，gRPC 端口是 grpcPort（不是客户端用的 port）。
+
+[ChatServer1]
+host = ${CHAT_BIND_HOST}
+port = ${CHAT1_PORT}
+name = ChatServer1
+grpcPort = ${CHAT1_GRPC_PORT}
+
+; gRPC 客户端：校验客户端登录 token
+[StatusServerForClient]
+host = ${STATUS_HOST}
+port = ${STATUS_PORT}
+
+[Mysql]
+host = ${MYSQL_HOST}
+port = ${MYSQL_PORT}
+passwd = ${MYSQL_PASSWORD}
+
+[Redis]
+host = ${REDIS_HOST}
+port = ${REDIS_PORT}
+passwd = ${REDIS_PASSWORD}
+
+[LoggerLevel]
+default = ${LOG_LEVEL}
+
+; 跨服消息转发
+[PeerServer]
+servers = PeerChatServer2
+
+[PeerChatServer2]
+host = ${PEER_CHAT2_HOST}
+port = ${CHAT2_PORT}
+name = ${PEER_CHAT2_NAME}
+grpcPort = ${CHAT2_GRPC_PORT}

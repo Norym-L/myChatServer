@@ -1,0 +1,8 @@
+# 构建上下文是 C:\dev\MyChat（GateServer 的上一层），只放 verifyserver 源码进来
+**
+!verifyserver/
+!verifyserver/**
+!GateServer/
+!GateServer/deploy/
+!GateServer/deploy/verifyserver/
+!GateServer/deploy/verifyserver/**

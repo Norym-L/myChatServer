@@ -10,3 +10,7 @@
 
 # 数据库备份含明文用户数据，不进版本库
 /db/backups/
+
+# 部署密码与镜像包不进版本库
+/deploy/.env
+/deploy/*.tar.gz

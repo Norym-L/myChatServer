@@ -1,8 +1,14 @@
-cmake_minimum_required(VERSION 4.3)
+cmake_minimum_required(VERSION 3.20)
 project(GateServer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ==================== 构建开关 ====================
+# 三个服务（Gate/Status/Chat）是发布目标；下面几项是可选目标，默认行为保持与本机 CLion 一致
+option(MYCHAT_BUILD_TESTS "构建 tests/ 下的单元测试" ON)
+option(MYCHAT_BUILD_RESOURCE_SERVER "构建 ResourceServer（WIP：configs/resource.ini 已被删除，默认关）" OFF)
+option(MYCHAT_WITH_AWSSDK "查找并链接 AWS SDK（源码里已无 Aws:: 引用，默认关）" OFF)
 
 # ==================== 公共依赖 ====================
 set(PLATFORM_LIBS "")
@@ -16,10 +22,18 @@ endif()
 find_package(Boost REQUIRED COMPONENTS filesystem charconv)
 find_package(jsoncpp REQUIRED)
 find_package(gRPC REQUIRED)
-find_package(redis++ REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
-find_package(AWSSDK REQUIRED COMPONENTS s3)
+# boost::mysql / boost::redis 的头文件实现需要 OpenSSL 与线程库。
+# 这两个之前是靠 redis++ 的传递依赖"蹭"进来的，现在 redis++ 已无人使用（全库只有注释提到），
+# 必须显式声明，否则 Linux 上链接会缺 SSL_*/pthread 符号。
+find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
+
+set(AWSSDK_LINK_LIBRARIES "")
+if (MYCHAT_WITH_AWSSDK)
+    find_package(AWSSDK REQUIRED COMPONENTS s3)
+endif ()
 
 # release 模式不编译 spdlog；必须写在 add_subdirectory 之前，才能作用到各服务子目录
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -40,9 +54,11 @@ set(MYCHAT_COMMON_LIBS
         Boost::charconv
         JsonCpp::JsonCpp
         gRPC::grpc++
-        redis++::redis++_static
         spdlog::spdlog
         fmt::fmt
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        Threads::Threads
         ${PLATFORM_LIBS}
         ${AWSSDK_LINK_LIBRARIES}
 )
@@ -64,8 +80,12 @@ add_subdirectory(proto)
 add_subdirectory(src/gateServer)
 add_subdirectory(src/statusServer)
 add_subdirectory(src/chatServer)
-add_subdirectory(src/resourceServer)
+if (MYCHAT_BUILD_RESOURCE_SERVER)
+    add_subdirectory(src/resourceServer)
+endif ()
 
 # ==================== 测试 ====================
-enable_testing()
-add_subdirectory(tests)
+if (MYCHAT_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif ()

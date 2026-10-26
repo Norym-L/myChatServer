@@ -18,12 +18,12 @@ foreach (TEST_SRC IN LISTS TEST_SOURCES)
             Boost::charconv
             JsonCpp::JsonCpp
             gRPC::grpc++
-            redis++::redis++_static
-            ws2_32
-            mswsock
-            libsodium
             spdlog::spdlog
             fmt::fmt
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            Threads::Threads
+            ${PLATFORM_LIBS}
     )
 
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})

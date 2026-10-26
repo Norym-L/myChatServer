@@ -1,0 +1,222 @@
+# =============================================================================
+# MyChat 服务端全栈编排（7 个容器）
+#
+#   mysql    MySQL 8.0（chatserver 库，schema 由 migrate 一次性应用）
+#   redis    Redis 8（token / 服务器注册表 / 离线流）
+#   migrate  schema 迁移任务（跑完即退出；后面的服务等它成功）
+#   verify   verifyserver（Node gRPC，验证码邮件）
+#   status   StatusServer（分配 ChatServer + 签发 token）
+#   gate     GateServer（HTTP/WebSocket 入口，客户端连这个）
+#   chat1/2  ChatServer ×2（客户端直连 + 互发 gRPC）
+#
+# 用法：
+#   cp .env.example .env   # 改 PUBLIC_HOST / 密码 / SMTP
+#   docker compose up -d
+#
+# 只有 gate 和 chat1/chat2 对公网暴露端口；mysql/redis/status/verify 只在 compose 网络内。
+# mysql 额外绑一个宿主 loopback 端口（127.0.0.1:${MYSQL_PUBLISH_PORT}），供 SSH 隧道 / 本机工具访问，
+# 公网依旧连不上；不想开就把 MYSQL_PUBLISH_PORT 设为空。
+# 云服务器安全组需要放行：GATE_PORT、CHAT1_PORT、CHAT2_PORT。
+# =============================================================================
+
+name: mychat
+
+# 三个 C++ 服务共用的环境变量
+x-server-env: &server-env
+  MYSQL_HOST: ${MYSQL_HOST:-mysql}
+  MYSQL_PORT: ${MYSQL_PORT:-3306}
+  MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
+  STATUS_HOST: ${STATUS_HOST:-status}
+  STATUS_PORT: ${STATUS_PORT:-50052}
+  VERIFY_HOST: ${VERIFY_HOST:-verify}
+  VERIFY_PORT: ${VERIFY_PORT:-50051}
+  LOG_LEVEL: ${LOG_LEVEL:-1}
+  MYCHAT_WAIT_TIMEOUT: ${MYCHAT_WAIT_TIMEOUT:-180}
+
+x-server-base: &server-base
+  image: mychat/server:${MYCHAT_TAG:-latest}
+  restart: unless-stopped
+  volumes:
+    # 只挂配置模板；ini 由 entrypoint 渲染到 /run/mychat 里
+    - ./configs:/opt/mychat/configs:ro
+
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.0}
+    restart: unless-stopped
+    ports:
+      # 只绑宿主机 127.0.0.1，公网不可达；CLion/DataGrip 用 SSH 隧道连这个端口
+      - "127.0.0.1:${MYSQL_PUBLISH_PORT:-3306}:3306"
+    environment:
+      # 代码里用户名写死 root、库名写死 chatserver（MySqlManager.cpp:9-14）
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: chatserver
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent" ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 40s
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:8.0}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:-123456}
+      - --appendonly
+      - "yes"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG" ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # 一次性任务：把 db/migrations/*.sql 应用到 mysql，跑完退出
+  migrate:
+    image: ${MYSQL_IMAGE:-mysql:8.0}
+    restart: "no"
+    environment:
+      MYSQL_HOST: ${MYSQL_HOST:-mysql}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_DATABASE: chatserver
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./migrate.sh:/deploy/migrate.sh:ro
+      - ../db/migrations:/migrations:ro
+      # 空库初始化用：schema.sql 是应用完所有迁移后的当前完整结构
+      - ../db/schema.sql:/schema.sql:ro
+    entrypoint: [ "/bin/bash", "/deploy/migrate.sh" ]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  verify:
+    image: mychat/verifyserver:${MYCHAT_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MYSQL_HOST: ${MYSQL_HOST:-mysql}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  status:
+    <<: *server-base
+    environment:
+      <<: *server-env
+      MYCHAT_BIN: status
+      MYCHAT_CONFIG_TEMPLATE: /opt/mychat/configs/status.ini.tmpl
+      # 下发给客户端的聊天服地址（公网 IP / 域名）
+      PUBLIC_HOST: ${PUBLIC_HOST:-127.0.0.1}
+      CHAT1_PORT: ${CHAT1_PORT:-20631}
+      CHAT2_PORT: ${CHAT2_PORT:-20632}
+      MYCHAT_WAIT_FOR: "redis:${REDIS_PORT:-6379}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  gate:
+    <<: *server-base
+    environment:
+      <<: *server-env
+      MYCHAT_BIN: gate
+      MYCHAT_CONFIG_TEMPLATE: /opt/mychat/configs/gate.ini.tmpl
+      GATE_PORT: ${GATE_PORT:-20060}
+      MYCHAT_WAIT_FOR: "mysql:${MYSQL_PORT:-3306} redis:${REDIS_PORT:-6379} status:${STATUS_PORT:-50052} verify:${VERIFY_PORT:-50051}"
+    ports:
+      - "${GATE_PORT:-20060}:${GATE_PORT:-20060}"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      status:
+        condition: service_started
+      verify:
+        condition: service_started
+
+  chat1:
+    <<: *server-base
+    environment:
+      <<: *server-env
+      MYCHAT_BIN: chat
+      MYCHAT_CONFIG_TEMPLATE: /opt/mychat/configs/chat1.ini.tmpl
+      # 容器内绑所有网卡；公网地址由 status.ini 里的 [ChatServer1].host 决定
+      CHAT_BIND_HOST: 0.0.0.0
+      CHAT1_PORT: ${CHAT1_PORT:-20631}
+      CHAT1_GRPC_PORT: ${CHAT1_GRPC_PORT:-20641}
+      CHAT2_PORT: ${CHAT2_PORT:-20632}
+      CHAT2_GRPC_PORT: ${CHAT2_GRPC_PORT:-20642}
+      PEER_CHAT2_HOST: ${PEER_CHAT2_HOST:-chat2}
+      PEER_CHAT2_NAME: ChatServer2
+      MYCHAT_WAIT_FOR: "mysql:${MYSQL_PORT:-3306} redis:${REDIS_PORT:-6379} status:${STATUS_PORT:-50052}"
+    ports:
+      - "${CHAT1_PORT:-20631}:${CHAT1_PORT:-20631}"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      status:
+        condition: service_started
+
+  chat2:
+    <<: *server-base
+    environment:
+      <<: *server-env
+      MYCHAT_BIN: chat
+      MYCHAT_CONFIG_TEMPLATE: /opt/mychat/configs/chat2.ini.tmpl
+      CHAT_BIND_HOST: 0.0.0.0
+      CHAT1_PORT: ${CHAT1_PORT:-20631}
+      CHAT1_GRPC_PORT: ${CHAT1_GRPC_PORT:-20641}
+      CHAT2_PORT: ${CHAT2_PORT:-20632}
+      CHAT2_GRPC_PORT: ${CHAT2_GRPC_PORT:-20642}
+      PEER_CHAT1_HOST: ${PEER_CHAT1_HOST:-chat1}
+      PEER_CHAT1_NAME: ChatServer1
+      MYCHAT_WAIT_FOR: "mysql:${MYSQL_PORT:-3306} redis:${REDIS_PORT:-6379} status:${STATUS_PORT:-50052}"
+    ports:
+      - "${CHAT2_PORT:-20632}:${CHAT2_PORT:-20632}"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      status:
+        condition: service_started
+
+volumes:
+  mysql-data:
+  redis-data:

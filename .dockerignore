@@ -1,0 +1,32 @@
+# 构建产物与本地工具链缓存：cmake-build-debug 单目录就有 1.7G
+cmake-build-*/
+build/
+out/
+cmake-build-*/**
+
+# 版本库与 IDE
+.git/
+.gitignore
+.vs/
+.vscode/
+.idea/
+.cache/
+compile_commands.json
+
+# Windows 产物
+**/*.exe
+**/*.dll
+**/*.pdb
+**/*.ilk
+
+# 部署期物料，不该进编译镜像
+deploy/*.tar
+deploy/*.tar.gz
+deploy/.env
+deploy/verifyserver/config.json
+*.tar.gz
+
+# 本地文档/脚本/备份
+docs/
+db/backups/
+*.log

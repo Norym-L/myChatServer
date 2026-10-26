@@ -1,0 +1,37 @@
+; ChatServer 实例 2 配置模板（容器内由 entrypoint 用环境变量渲染）
+;   约定：本文件内恰好一个 [ChatServerN] 段，进程据此确定自身身份
+;   与 chat1 对称：绑定用 0.0.0.0，对端走容器网络名 chat1
+
+[ChatServer2]
+host = ${CHAT_BIND_HOST}
+port = ${CHAT2_PORT}
+name = ChatServer2
+grpcPort = ${CHAT2_GRPC_PORT}
+
+; gRPC 客户端：校验客户端登录 token
+[StatusServerForClient]
+host = ${STATUS_HOST}
+port = ${STATUS_PORT}
+
+[Mysql]
+host = ${MYSQL_HOST}
+port = ${MYSQL_PORT}
+passwd = ${MYSQL_PASSWORD}
+
+[Redis]
+host = ${REDIS_HOST}
+port = ${REDIS_PORT}
+passwd = ${REDIS_PASSWORD}
+
+[LoggerLevel]
+default = ${LOG_LEVEL}
+
+; 跨服消息转发
+[PeerServer]
+servers = PeerChatServer1
+
+[PeerChatServer1]
+host = ${PEER_CHAT1_HOST}
+port = ${CHAT1_PORT}
+name = ${PEER_CHAT1_NAME}
+grpcPort = ${CHAT1_GRPC_PORT}

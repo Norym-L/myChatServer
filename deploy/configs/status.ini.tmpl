@@ -1,0 +1,29 @@
+; StatusServer 配置模板（容器内由 entrypoint 用环境变量渲染）
+;   监听：容器内 0.0.0.0，只有 compose 网络里的 gate/chat 会连它，不对公网暴露
+;   [ChatServerN].host 是**客户端**直连的地址 → 必须填公网 IP / 域名（PUBLIC_HOST），
+;   否则客户端拿到的是容器网段地址，连不上聊天服。
+
+[StatusServer]
+host = 0.0.0.0
+port = ${STATUS_PORT}
+
+[ChatServer]
+servers = ChatServer1,ChatServer2
+
+[ChatServer1]
+host = ${PUBLIC_HOST}
+port = ${CHAT1_PORT}
+name = ChatServer1
+
+[ChatServer2]
+host = ${PUBLIC_HOST}
+port = ${CHAT2_PORT}
+name = ChatServer2
+
+[Redis]
+host = ${REDIS_HOST}
+port = ${REDIS_PORT}
+passwd = ${REDIS_PASSWORD}
+
+[LoggerLevel]
+default = ${LOG_LEVEL}
